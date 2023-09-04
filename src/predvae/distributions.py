@@ -270,3 +270,116 @@ class Distribution(eqx.Module):
         if self.cond_shape is not None:
             return len(self.cond_shape)
         return None
+
+
+class Transformed(Distribution):
+    """Form a distribution like object using a base distribution and a
+    bijection. We take the forward bijection for use in sampling, and the inverse
+    bijection for use in density evaluation.
+    """
+
+    base_dist: Distribution
+    bijection: Bijection
+    cond_shape: tuple[int, ...] | None
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        bijection: Bijection,
+    ):
+        """
+        Args:
+            base_dist (Distribution): Base distribution.
+            bijection (Bijection): Bijection to transform distribution.
+
+        Example:
+
+        .. doctest::
+
+            >>> from flowjax.distributions import StandardNormal, Transformed
+            >>> from flowjax.bijections import Affine
+            >>> normal = StandardNormal()
+            >>> bijection = Affine(1)
+            >>> transformed = Transformed(normal, bijection)
+
+
+        .. warning::
+            It is the currently the users responsibility to ensure the bijection is
+            valid across the entire support of the distribution. Failure to do so may
+            lead to to unexpected results. In future versions explicit constraints may
+            be introduced.
+        """
+        self.base_dist = base_dist
+        self.bijection = bijection
+        self.shape = self.base_dist.shape
+        self.cond_shape = merge_cond_shapes(
+            (self.bijection.cond_shape, self.base_dist.cond_shape)
+        )
+
+    def _log_prob(self, x, condition=None):
+        z, log_abs_det = self.bijection.inverse_and_log_det(x, condition)
+        p_z = self.base_dist._log_prob(z, condition)  # pylint: disable W0212
+        return p_z + log_abs_det
+
+    def _sample(self, key, condition=None):
+        base_sample = self.base_dist._sample(key, condition)
+        return self.bijection.transform(base_sample, condition)
+
+    def _sample_and_log_prob(self, key: jr.KeyArray, condition=None):
+        # We overwrite the naive implementation of calling both methods seperately to
+        # avoid computing the inverse transformation.
+        base_sample, log_prob_base = self.base_dist._sample_and_log_prob(key, condition)
+        sample, forward_log_dets = self.bijection.transform_and_log_det(
+            base_sample, condition
+        )
+        return sample, log_prob_base - forward_log_dets
+
+
+class StandardNormal(Distribution):
+    """Implements a standard normal distribution, condition is ignored. Unlike
+    :class:`Normal`, this has no trainable parameters.
+    """
+
+    def __init__(self, shape: tuple[int, ...] = ()):
+        """
+        Args:
+            shape (tuple[int, ...]): The shape of the normal distribution. Defaults to
+                ().
+        """
+        self.shape = shape
+        self.cond_shape = None
+
+    def _log_prob(self, x, condition=None):
+        return jstats.norm.logpdf(x).sum()
+
+    def _sample(self, key, condition=None):
+        return jr.normal(key, self.shape)
+
+
+class Normal(Transformed):
+    """Implements an independent Normal distribution with mean and std for
+    each dimension. `loc` and `scale` should be broadcastable.
+    """
+
+    bijection: Affine
+
+    def __init__(self, loc: ArrayLike = 0, scale: ArrayLike = 1):
+        """
+        Args:
+            loc (ArrayLike): Means. Defaults to 0.
+            scale (ArrayLike): Standard deviations. Defaults to 1.
+        """
+        shape = jnp.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        base_dist = StandardNormal(shape)
+        bijection = Affine(loc=loc, scale=scale)
+        super().__init__(base_dist, bijection)
+
+    @property
+    def loc(self):
+        """Location of the distribution"""
+        return self.bijection.loc
+
+    @property
+    def scale(self):
+        """scale of the distribution"""
+        return self.bijection.scale
