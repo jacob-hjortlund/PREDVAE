@@ -17,6 +17,7 @@ from jaxtyping import Array, PRNGKeyArray
 _identity = lambda x: x
 
 
+# TODO: Add BatchNorm
 class MLP(eqx.Module):
     """
     Standard Multi-Layer Perceptron (MLP)
