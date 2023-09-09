@@ -1,1 +1,1 @@
-from vae import VAE
+from .mlp import MLP

@@ -77,11 +77,11 @@ class MLP(eqx.Module):
         layers = []
         if depth == 0:
             layers.append(
-                eqx.nn.Linear(in_size, out_size, use_bias=use_final_bias, keys=keys[0])
+                eqx.nn.Linear(in_size, out_size, use_bias=use_final_bias, key=keys[0])
             )
         else:
             layers.append(
-                eqx.nn.Linear(in_size, width_size[0], use_bias=use_bias, keys=keys[0])
+                eqx.nn.Linear(in_size, width_size[0], use_bias=use_bias, key=keys[0])
             )
             for i in range(depth - 1):
                 layers.append(
@@ -89,12 +89,12 @@ class MLP(eqx.Module):
                         width_size[i],
                         width_size[i + 1],
                         use_bias=use_bias,
-                        keys=keys[i + 1],
+                        key=keys[i + 1],
                     )
                 )
             layers.append(
                 eqx.nn.Linear(
-                    width_size[-1], out_size, use_bias=use_final_bias, keys=keys[-1]
+                    width_size[-1], out_size, use_bias=use_final_bias, key=keys[-1]
                 )
             )
         self.layers = tuple(layers)
