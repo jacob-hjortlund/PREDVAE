@@ -20,10 +20,10 @@ from progress_table import ProgressTable
 from jaxtyping import Array, Float, Int, PyTree
 
 
-class Encoder(Module):
+class Coder(Module):
     mlp: Module
     input_size: int = eqx.field(static=True)
-    latent_size: int = eqx.field(static=True)
+    output_size: int = eqx.field(static=True)
     width: Array = eqx.field(static=True, converter=jnp.asarray)
     depth: int = eqx.field(static=True)
     activation: Callable
@@ -31,7 +31,7 @@ class Encoder(Module):
     def __init__(
         self,
         input_size: int,
-        latent_size: int,
+        output_size: int,
         width: Array,
         depth: int,
         activation: Callable,
@@ -41,7 +41,7 @@ class Encoder(Module):
         super().__init__(**kwargs)
         self.mlp = MLP(
             in_size=input_size,
-            out_size=latent_size + 1,
+            out_size=output_size + 1,
             width_size=width,
             depth=depth,
             key=key,
@@ -49,7 +49,7 @@ class Encoder(Module):
             **kwargs,
         )
         self.input_size = input_size
-        self.latent_size = latent_size
+        self.output_size = output_size
         self.width = width
         self.depth = depth
         self.activation = activation
@@ -59,57 +59,11 @@ class Encoder(Module):
 
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         output = self.mlp(x)
-        mu = output[..., : self.latent_size]
-        log_sigma = output[..., self.latent_size :] * jnp.ones_like(mu)
+        mu = output[..., : self.output_size]
+        log_sigma = output[..., self.output_size :] * jnp.ones_like(mu)
         z = self.sample(mu, log_sigma, rng_key)
 
         return z, mu, log_sigma
-
-
-class Decoder(Module):
-    mlp: Module
-    input_size: int = eqx.field(static=True)
-    latent_size: int = eqx.field(static=True)
-    width: Array = eqx.field(static=True, converter=jnp.asarray)
-    depth: int = eqx.field(static=True)
-    activation: Callable
-
-    def __init__(
-        self,
-        input_size: int,
-        latent_size: int,
-        width: Array,
-        depth: int,
-        activation: Callable,
-        key: PRNGKeyArray,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.mlp = MLP(
-            in_size=latent_size,
-            out_size=input_size + 1,
-            width_size=width,
-            depth=depth,
-            key=key,
-            activation=activation,
-            **kwargs,
-        )
-        self.input_size = input_size
-        self.latent_size = latent_size
-        self.width = width
-        self.depth = depth
-        self.activation = activation
-
-    def sample(self, mu, log_sigma, rng_key):
-        return mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
-
-    def __call__(self, z: ArrayLike, rng_key: ArrayLike):
-        output = self.mlp(z)
-        mu = output[..., : self.input_size]
-        log_sigma = output[..., self.input_size :] * jnp.ones_like(mu)
-        x = self.sample(mu, log_sigma, rng_key)
-
-        return x, mu, log_sigma
 
 
 class VAE(Module):

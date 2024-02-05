@@ -1,7 +1,6 @@
 from .mlp import MLP
 from .vae import (
-    Encoder,
-    Decoder,
+    Coder,
     VAE,
     kl_divergence,
     reproduction_loss,
