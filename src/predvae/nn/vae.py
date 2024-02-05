@@ -128,21 +128,65 @@ class VAE(Module):
         self.decoder = decoder
 
     def encode(self, x: ArrayLike, rng_key: ArrayLike):
-        z, z_mu, z_log_sigma = self.encoder(x, rng_key)
+        z, z_pars = self.encoder(x, rng_key)
 
-        return z, z_mu, z_log_sigma
+        return z, z_pars
 
     def decode(self, z: ArrayLike, rng_key: ArrayLike):
-        x_hat, x_mu, x_log_sigma = self.decoder(z, rng_key)
+        x_hat, x_pars = self.decoder(z, rng_key)
 
-        return x_hat, x_mu, x_log_sigma
+        return x_hat, x_pars
 
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         encoder_key, decoder_key = jr.split(rng_key)
-        z, z_mu, z_log_sigma = self.encode(x, encoder_key)
-        x_hat, x_mu, x_log_sigma = self.decode(z, decoder_key)
+        z, z_pars = self.encode(x, encoder_key)
+        x_hat, x_pars = self.decode(z, decoder_key)
 
-        return x_hat, z_mu, z_log_sigma
+        return x_hat, z_pars
+
+
+class SSVAE(Module):
+    encoder: Module
+    decoder: Module
+    classifier: Module
+
+    def __init__(
+        self,
+        encoder: Module,
+        decoder: Module,
+        classifier: Module,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.classifier = classifier
+
+    def classify(self, x: ArrayLike, rng_key: ArrayLike):
+        y, y_pars = self.classifier(x, rng_key)
+
+        return y, y_pars
+
+    def encode(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+        _x = jnp.column_stack([x, y])
+        z, z_pars = self.encoder(_x, rng_key)
+
+        return z, z_pars
+
+    def decode(self, z: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+        _z = jnp.column_stack([z, y])
+        x_hat, x_pars = self.decoder(_z, rng_key)
+
+        return x_hat, x_pars
+
+    def __call__(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        y, y_pars = self.classify(x, classifier_key)
+        z, z_pars = self.encode(x, y, encoder_key)
+        x_hat, x_pars = self.decode(z, y, decoder_key)
+
+        return x_hat, z_pars, y_pars
 
 
 def kl_divergence(mu, log_sigma):
