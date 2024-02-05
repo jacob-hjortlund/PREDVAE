@@ -1,6 +1,6 @@
 from .mlp import MLP
 from .vae import (
-    Coder,
+    GaussianCoder,
     VAE,
     kl_divergence,
     reproduction_loss,

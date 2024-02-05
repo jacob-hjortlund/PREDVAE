@@ -1,3 +1,4 @@
+import jax
 import time
 import optax
 import torch
@@ -20,7 +21,7 @@ from progress_table import ProgressTable
 from jaxtyping import Array, Float, Int, PyTree
 
 
-class Coder(Module):
+class GaussianCoder(Module):
     mlp: Module
     input_size: int = eqx.field(static=True)
     output_size: int = eqx.field(static=True)
@@ -64,6 +65,51 @@ class Coder(Module):
         z = self.sample(mu, log_sigma, rng_key)
 
         return z, mu, log_sigma
+
+
+class CategoricalCoder(Module):
+    mlp: Module
+    input_size: int = eqx.field(static=True)
+    output_size: int = eqx.field(static=True)
+    width: Array = eqx.field(static=True, converter=jnp.asarray)
+    depth: int = eqx.field(static=True)
+    activation: Callable
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        width: Array,
+        depth: int,
+        activation: Callable,
+        key: PRNGKeyArray,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.mlp = MLP(
+            in_size=input_size,
+            out_size=output_size,
+            width_size=width,
+            depth=depth,
+            key=key,
+            activation=activation,
+            **kwargs,
+        )
+        self.input_size = input_size
+        self.output_size = output_size
+        self.width = width
+        self.depth = depth
+        self.activation = activation
+
+    def sample(self, probs, rng_key):
+        return jr.categorical(rng_key, probs)
+
+    def __call__(self, x: ArrayLike, rng_key: ArrayLike):
+        logits = self.mlp(x)
+        probs = jax.nn.softmax(logits)
+        z = self.sample(probs, rng_key)
+
+        return z, logits
 
 
 class VAE(Module):
