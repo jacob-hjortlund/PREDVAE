@@ -28,7 +28,7 @@ def gaussian_vae_loss(
     """
 
     @eqx.filter_jit
-    def _vae_loss(
+    def _sample_loss(
         model: Module,
         x: ArrayLike,
         rng_key: PRNGKeyArray,
@@ -43,7 +43,41 @@ def gaussian_vae_loss(
 
         return loss
 
-    loss = vmap(_vae_loss, in_axes=(None, 0, None))(model, x, rng_key)
+    loss = vmap(_sample_loss, in_axes=(None, 0, None))(model, x, rng_key)
+    batch_loss = jnp.mean(loss)
+
+    return batch_loss
+
+
+def ssvae_classifier_loss(
+    model: Module,
+    x: ArrayLike,
+    y: ArrayLike,
+    rng_key: PRNGKeyArray,
+) -> Module:
+    """
+    Batch loss function for a semi-supervised VAE classifier.
+
+    Args:
+        model (Module): SSVAE model
+        x (ArrayLike): Data batch
+        y (ArrayLike): Target batch
+        rng_key (PRNGKeyArray): RNG key with leading dimension equal to the batch size
+
+    Returns:
+        Module: Batch loss
+    """
+
+    @eqx.filter_jit
+    def _sample_loss(
+        model: Module,
+        x: ArrayLike,
+        y: ArrayLike,
+        rng_key: PRNGKeyArray,
+    ):
+        pass
+
+    loss = vmap(_sample_loss, in_axes=(None, 0, 0, None))(model, x, y, rng_key)
     batch_loss = jnp.mean(loss)
 
     return batch_loss
