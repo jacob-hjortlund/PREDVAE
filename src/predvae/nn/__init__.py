@@ -1,9 +1,4 @@
+from .layers import Frozen
 from .mlp import MLP
-from .vae import (
-    GaussianCoder,
-    VAE,
-    kl_divergence,
-    reproduction_loss,
-    vae_loss,
-    train,
-)
+from .priors import Gaussian, Categorical
+from .vae import GaussianCoder, CategoricalCoder, VAE, SSVAE

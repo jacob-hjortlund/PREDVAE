@@ -1,57 +1,17 @@
-import jax
 import time
 import optax
 import torch
 
-import equinox as eqx
 import numpy as np
-import jax.numpy as jnp
+import equinox as eqx
 import jax.random as jr
 
-from tqdm import tqdm
+from jax import Array
 from equinox import Module
-from jax import Array, vmap
-from jax.typing import ArrayLike
-from src.predvae.nn.mlp import MLP
 from jax.random import PRNGKeyArray
 from collections.abc import Callable
-from jax.experimental import checkify
-from jax.scipy import stats as jstats
 from progress_table import ProgressTable
-from jaxtyping import Array, Float, Int, PyTree
-
-
-def gaussian_kl_divergence(mu: ArrayLike, log_sigma: ArrayLike) -> ArrayLike:
-    """
-    Compute the KL divergence between a diagonal Gaussian and the standard normal.
-
-    Args:
-        mu (ArrayLike): Mean array
-        log_sigma (ArrayLike): Log standard deviation array
-
-    Returns:
-        ArrayLike: KL divergence
-    """
-
-    return -0.5 * jnp.sum(1 + 2 * log_sigma - mu**2 - jnp.exp(2 * log_sigma), axis=-1)
-
-
-def gaussian_log_likelihood(
-    x: ArrayLike, mu: ArrayLike, log_sigma: ArrayLike
-) -> ArrayLike:
-    """
-    Compute the log likelihood of a diagonal Gaussian.
-
-    Args:
-        x (ArrayLike): Input array
-        mu (ArrayLike): Mean array
-        log_sigma (ArrayLike): Log standard deviation array
-
-    Returns:
-        ArrayLike: Log likelihood
-    """
-
-    return jnp.sum(jstats.norm.logpf(x, loc=mu, scale=jnp.exp(log_sigma)), axis=-1)
+from jaxtyping import Array, Float, PyTree
 
 
 def train(
