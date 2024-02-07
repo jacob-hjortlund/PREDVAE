@@ -1,11 +1,10 @@
-from abc import abstractmethod
-from math import prod
-
-import equinox as eqx
-import jax.numpy as jnp
-import jax.random as jr
-
-from jax import Array
-from jax.experimental import checkify
-from jax.scipy import stats as jstats
+from equinox import Module
 from jax.typing import ArrayLike
+
+
+class Frozen(Module):
+    layer: ArrayLike
+
+    def __init__(self, layer: ArrayLike, **kwargs):
+        super().__init__(**kwargs)
+        self.layer = layer
