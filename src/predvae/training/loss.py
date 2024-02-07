@@ -40,7 +40,7 @@ def gaussian_log_likelihood(
         ArrayLike: Log likelihood
     """
 
-    return jnp.sum(jstats.norm.logpf(x, loc=mu, scale=jnp.exp(log_sigma)), axis=-1)
+    return jnp.sum(jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma)), axis=-1)
 
 
 def gaussian_vae_loss(
@@ -67,11 +67,11 @@ def gaussian_vae_loss(
         rng_key: PRNGKeyArray,
     ):
         encoder_key, decoder_key = jr.split(rng_key)
-        z, z_mu, z_log_sigma = model.encode(x, encoder_key)
-        x_hat, x_mu, x_log_sigma = model.decode(z, decoder_key)
+        z, z_pars = model.encode(x, encoder_key)
+        x_hat, x_pars = model.decode(z, decoder_key)
 
-        kl_divergence = gaussian_kl_divergence(z_mu, z_log_sigma)
-        reproduction_loss = gaussian_log_likelihood(x, x_mu, x_log_sigma)
+        kl_divergence = gaussian_kl_divergence(*z_pars)
+        reproduction_loss = gaussian_log_likelihood(x, *x_pars)
         loss = -(reproduction_loss - kl_divergence)
 
         return loss

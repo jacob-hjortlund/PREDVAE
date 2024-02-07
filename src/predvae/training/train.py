@@ -38,7 +38,7 @@ def train(
         x: Float[Array, "batch 784"],
         rng_key: PRNGKeyArray,
     ):
-        loss_value, aux, grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
+        (loss_value, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
             model, x, rng_key
         )
         updates, opt_state = optim.update(grads, opt_state, model)
@@ -75,7 +75,8 @@ def train(
             test_loss = []
             for x, _ in testloader:
                 x = x.numpy()
-                test_loss.append(loss_fn(model, x, eval_key))
+                loss, aux = loss_fn(model, x, eval_key)
+                test_loss.append(loss)
             test_loss = np.sum(test_loss) / len(test_loss)
             test_losses.append(test_loss)
             prog_table.update("Epoch", epoch)

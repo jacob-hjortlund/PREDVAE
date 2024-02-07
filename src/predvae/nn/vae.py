@@ -67,7 +67,7 @@ class GaussianCoder(Module):
         log_sigma = output[..., self.output_size :] * jnp.ones_like(mu)
         z = self.sample(mu, log_sigma, rng_key)
 
-        return z, mu, log_sigma
+        return z, (mu, log_sigma)
 
 
 class CategoricalCoder(Module):
