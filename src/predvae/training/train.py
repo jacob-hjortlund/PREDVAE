@@ -78,10 +78,12 @@ def train(
         x: Float[Array, "batch 784"],
         rng_key: PRNGKeyArray,
     ):
-        loss_value, grads = eqx.filter_value_and_grad(loss_fn)(model, x, rng_key)
+        loss_value, aux, grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
+            model, x, rng_key
+        )
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
-        return model, opt_state, loss_value
+        return model, opt_state, loss_value, aux
 
     # Loop over our training dataset as many times as we need.
     def infinite_trainloader():
@@ -104,7 +106,7 @@ def train(
         # train_losses.append(train_loss)
 
         x = x.numpy()
-        model, opt_state, train_loss = make_step(model, opt_state, x, epoch_key)
+        model, opt_state, train_loss, aux = make_step(model, opt_state, x, epoch_key)
         train_losses.append(train_loss)
 
         t1 = time.time()

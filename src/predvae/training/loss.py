@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from tqdm import tqdm
+from jax.lax import cond
 from equinox import Module
 from jax import Array, vmap
 from jax.typing import ArrayLike
@@ -46,14 +47,15 @@ def gaussian_vae_loss(
     loss = vmap(_sample_loss, in_axes=(None, 0, None))(model, x, rng_key)
     batch_loss = jnp.mean(loss)
 
-    return batch_loss
+    return batch_loss, jnp.array([jnp.nan])
 
 
-def ssvae_classifier_loss(
+def ssvae_loss(
     model: Module,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
+    alpha: ArrayLike,
 ) -> Module:
     """
     Batch loss function for a semi-supervised VAE classifier.
@@ -63,10 +65,72 @@ def ssvae_classifier_loss(
         x (ArrayLike): Data batch
         y (ArrayLike): Target batch
         rng_key (PRNGKeyArray): RNG key with leading dimension equal to the batch size
+        alpha (ArrayLike): Target loss weight
 
     Returns:
         Module: Batch loss
     """
+
+    def _supervised_sample_loss(
+        model: Module,
+        x: ArrayLike,
+        y: ArrayLike,
+        rng_key: PRNGKeyArray,
+    ):
+        encoder_key, decoder_key = jr.split(rng_key, 2)
+        _, y_pars = model.predictor(x, encoder_key)
+        z, z_pars = model.encoder(x, y, encoder_key)
+        x_hat, x_pars = model.decoder(z, y, decoder_key)
+
+        target_log_prior = model.target_prior(y)
+        target_log_prob = model.predictor.log_prob(y, *y_pars)
+
+        latent_log_prior = model.latent_prior(z)
+        latent_log_prob = model.encoder.log_prob(z, *z_pars)
+
+        reconstruction_log_prob = model.decoder.log_prob(x, x_hat, *x_pars)
+
+        supervised_loss = (
+            latent_log_prob
+            - latent_log_prior
+            - target_log_prior
+            - reconstruction_log_prob
+        )
+
+        loss = jnp.array([jnp.nan, supervised_loss, target_log_prob])
+
+        return loss
+
+    def _unsupervised_sample_loss(
+        model: Module,
+        x: ArrayLike,
+        y: ArrayLike,
+        rng_key: PRNGKeyArray,
+    ):
+        encoder_key, predictor_key, decoder_key = jr.split(rng_key, 3)
+        y, y_pars = model.predictor(x, predictor_key)
+        z, z_pars = model.encoder(x, y, encoder_key)
+        x_hat, x_pars = model.decoder(z, y, decoder_key)
+
+        target_log_prior = model.target_prior(y)
+        target_log_prob = model.predictor.log_prob(y, *y_pars)
+
+        latent_log_prior = model.latent_prior(z)
+        latent_log_prob = model.encoder.log_prob(z, *z_pars)
+
+        reconstruction_log_prob = model.decoder.log_prob(x, x_hat, *x_pars)
+
+        unsupervised_loss = (
+            latent_log_prob
+            + target_log_prob
+            - latent_log_prior
+            - target_log_prior
+            - reconstruction_log_prob
+        )
+
+        loss = jnp.array([unsupervised_loss, jnp.nan, jnp.nan])
+
+        return loss
 
     @eqx.filter_jit
     def _sample_loss(
@@ -75,9 +139,31 @@ def ssvae_classifier_loss(
         y: ArrayLike,
         rng_key: PRNGKeyArray,
     ):
-        pass
+        loss_components = cond(
+            y == -1,
+            _unsupervised_sample_loss,
+            _supervised_sample_loss,
+            model,
+            x,
+            y,
+            rng_key,
+        )
 
-    loss = vmap(_sample_loss, in_axes=(None, 0, 0, None))(model, x, y, rng_key)
-    batch_loss = jnp.mean(loss)
+        return loss_components
 
-    return batch_loss
+    loss_components = vmap(_sample_loss, in_axes=(None, 0, 0, None))(
+        model, x, y, rng_key
+    )
+    batch_unsupervised_loss = jnp.nanmean(loss_components[:, 0])
+    batch_supervised_loss = jnp.nanmean(loss_components[:, 1])
+    batch_target_loss = -alpha * jnp.nanmean(loss_components[:, 2])
+
+    batch_loss = batch_unsupervised_loss + batch_supervised_loss + batch_target_loss
+
+    return batch_loss, jnp.array(
+        [
+            batch_unsupervised_loss,
+            batch_supervised_loss,
+            batch_target_loss,
+        ]
+    )
