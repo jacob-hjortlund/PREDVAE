@@ -58,6 +58,9 @@ class GaussianCoder(Module):
     def sample(self, mu, log_sigma, rng_key):
         return mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
 
+    def log_prob(self, x, mu, log_sigma):
+        return jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma))
+
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         output = self.mlp(x)
         mu = output[..., : self.output_size]
@@ -101,13 +104,19 @@ class CategoricalCoder(Module):
         self.depth = depth
         self.activation = activation
 
-    def sample(self, probs, rng_key):
-        return jr.categorical(rng_key, probs)
+    def sample(self, logits, rng_key):
+        categorical_sample = jr.categorical(rng_key, logits)
+        one_hot_sample = jax.nn.one_hot(categorical_sample, self.output_size)
+
+        return one_hot_sample
+
+    def log_prob(self, x, logits):
+        probs = jax.nn.softmax(logits)
+        return jstats.multinomial.logpmf(x, 1, probs)
 
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         logits = self.mlp(x)
-        probs = jax.nn.softmax(logits)
-        z = self.sample(probs, rng_key)
+        z = self.sample(logits, rng_key)
 
         return z, logits
 
@@ -148,23 +157,25 @@ class VAE(Module):
 class SSVAE(Module):
     encoder: Module
     decoder: Module
-    classifier: Module
+    predictor: Module
+    latent_prior: Module
+    target_prior: Module
 
     def __init__(
         self,
         encoder: Module,
         decoder: Module,
-        classifier: Module,
+        predictor: Module,
         *args,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
-        self.classifier = classifier
+        self.predictor = predictor
 
-    def classify(self, x: ArrayLike, rng_key: ArrayLike):
-        y, y_pars = self.classifier(x, rng_key)
+    def predict(self, x: ArrayLike, rng_key: ArrayLike):
+        y, y_pars = self.predict(x, rng_key)
 
         return y, y_pars
 
@@ -181,9 +192,9 @@ class SSVAE(Module):
         return x_hat, x_pars
 
     def __call__(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
-        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
-        y, y_pars = self.classify(x, classifier_key)
+        predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        y, y_pars = self.predict(x, predictor_key)
         z, z_pars = self.encode(x, y, encoder_key)
         x_hat, x_pars = self.decode(z, y, decoder_key)
 
-        return x_hat, z_pars, y_pars
+        return y, z, x_hat, y_pars, z_pars, x_pars
