@@ -12,6 +12,7 @@ from jax.random import PRNGKeyArray
 from collections.abc import Callable
 from progress_table import ProgressTable
 from jaxtyping import Array, Float, PyTree
+from src.predvae.training import freeze_parameters
 
 
 def train(
@@ -38,8 +39,10 @@ def train(
         x: Float[Array, "batch 784"],
         rng_key: PRNGKeyArray,
     ):
+
+        free_params, frozen_params = freeze_parameters(model)
         (loss_value, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
-            model, x, rng_key
+            free_params, frozen_params, x, rng_key
         )
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)

@@ -44,7 +44,8 @@ def gaussian_log_likelihood(
 
 
 def gaussian_vae_loss(
-    model: Module,
+    free_params: Module,
+    frozen_params: Module,
     x: ArrayLike,
     rng_key: PRNGKeyArray,
 ) -> Module:
@@ -52,7 +53,8 @@ def gaussian_vae_loss(
     Batch loss function for a gaussian VAE.
 
     Args:
-        model (Module): VAE model
+        free_params (Module): VAE Model containing free parameters
+        frozen_params (Module): VAE Model containing frozen parameters
         x (ArrayLike): Data batch
         rng_key (PRNGKeyArray): RNG key with leading dimension equal to the batch size
 
@@ -60,7 +62,6 @@ def gaussian_vae_loss(
         Module: Batch loss
     """
 
-    @eqx.filter_jit
     def _sample_loss(
         model: Module,
         x: ArrayLike,
@@ -76,6 +77,7 @@ def gaussian_vae_loss(
 
         return loss
 
+    model = eqx.combine(free_params, frozen_params)
     loss = vmap(_sample_loss, in_axes=(None, 0, None))(model, x, rng_key)
     batch_loss = jnp.mean(loss)
 
@@ -83,7 +85,8 @@ def gaussian_vae_loss(
 
 
 def ssvae_loss(
-    model: Module,
+    free_params: Module,
+    frozen_params: Module,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
@@ -93,7 +96,8 @@ def ssvae_loss(
     Batch loss function for a semi-supervised VAE classifier.
 
     Args:
-        model (Module): SSVAE model
+        free_params (Module): SSVAE model containing free parameters
+        frozen_params (Module): SSVAE model containing frozen parameters
         x (ArrayLike): Data batch
         y (ArrayLike): Target batch
         rng_key (PRNGKeyArray): RNG key with leading dimension equal to the batch size
@@ -164,7 +168,6 @@ def ssvae_loss(
 
         return loss
 
-    @eqx.filter_jit
     def _sample_loss(
         model: Module,
         x: ArrayLike,
@@ -183,6 +186,7 @@ def ssvae_loss(
 
         return loss_components
 
+    model = eqx.combine(free_params, frozen_params)
     loss_components = vmap(_sample_loss, in_axes=(None, 0, 0, None))(
         model, x, y, rng_key
     )
