@@ -43,7 +43,8 @@ class Categorical(Module):
         self.logits = logits
 
     def log_pdf(self, x: ArrayLike) -> ArrayLike:
-        return jstats.multinomial.logpmf(x, logits=self.logits)
+        probs = jax.nn.softmax(self.logits)
+        return jstats.multinomial.logpmf(x, n=1, p=probs)
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return self.log_pdf(x)

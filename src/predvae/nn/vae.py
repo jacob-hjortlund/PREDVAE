@@ -117,6 +117,7 @@ class CategoricalCoder(Module):
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         logits = self.mlp(x)
         z = self.sample(logits, rng_key)
+        z = z.astype(jnp.int32)
 
         return z, logits
 
@@ -179,18 +180,18 @@ class SSVAE(Module):
         self.target_prior = target_prior
 
     def predict(self, x: ArrayLike, rng_key: ArrayLike):
-        y, y_pars = self.predict(x, rng_key)
+        y, y_pars = self.predictor(x, rng_key)
 
         return y, y_pars
 
     def encode(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
-        _x = jnp.column_stack([x, y])
+        _x = jnp.concatenate([x, y])
         z, z_pars = self.encoder(_x, rng_key)
 
         return z, z_pars
 
     def decode(self, z: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
-        _z = jnp.column_stack([z, y])
+        _z = jnp.concatenate([z, y])
         x_hat, x_pars = self.decoder(_z, rng_key)
 
         return x_hat, x_pars
