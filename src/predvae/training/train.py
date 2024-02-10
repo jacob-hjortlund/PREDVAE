@@ -51,7 +51,9 @@ def train(
             yield from trainloader
 
     train_losses = []
+    train_auxes = []
     test_losses = []
+    test_auxes = []
 
     prog_table = ProgressTable(
         columns=["Epoch", "Train Loss", "Test Loss", "Epoch Rate [Epochs / Hour]"],
@@ -68,17 +70,21 @@ def train(
         x = x.numpy()
         model, opt_state, train_loss, aux = make_step(model, opt_state, x, epoch_key)
         train_losses.append(train_loss)
+        train_auxes.append(aux)
 
         t1 = time.time()
 
         if epoch % print_every == 0:
             test_loss = []
+            test_aux = []
             for x, _ in testloader:
                 x = x.numpy()
                 loss, aux = loss_fn(model, x, eval_key)
                 test_loss.append(loss)
+                test_aux.append(aux)
             test_loss = np.sum(test_loss) / len(test_loss)
             test_losses.append(test_loss)
+            test_auxes.append(test_aux)
             prog_table.update("Epoch", epoch)
             prog_table.update("Train Loss", train_loss)
             prog_table.update("Test Loss", test_loss)
@@ -89,4 +95,4 @@ def train(
 
     prog_table.close()
 
-    return model, train_losses, test_losses
+    return model, train_losses, test_losses, train_auxes, test_auxes
