@@ -166,6 +166,8 @@ class SSVAE(Module):
         encoder: Module,
         decoder: Module,
         predictor: Module,
+        latent_prior: Module,
+        target_prior: Module,
         *args,
         **kwargs,
     ):
@@ -173,6 +175,8 @@ class SSVAE(Module):
         self.encoder = encoder
         self.decoder = decoder
         self.predictor = predictor
+        self.latent_prior = latent_prior
+        self.target_prior = target_prior
 
     def predict(self, x: ArrayLike, rng_key: ArrayLike):
         y, y_pars = self.predict(x, rng_key)
