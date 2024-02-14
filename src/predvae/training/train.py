@@ -8,11 +8,13 @@ import jax.random as jr
 
 from jax import Array
 from equinox import Module
+from jax.typing import ArrayLike
 from jax.random import PRNGKeyArray
 from collections.abc import Callable
 from progress_table import ProgressTable
 from jaxtyping import Array, Float, PyTree
-from src.predvae.training import freeze_parameters
+from .util import freeze_parameters
+from functools import partial
 
 
 def train(
@@ -24,25 +26,28 @@ def train(
     loss_fn: Callable,
     epochs: int,
     print_every: int,
+    loss_kwargs: dict = {},
 ) -> Module:
     # Just like earlier: It only makes sense to train the arrays in our model,
     # so filter out everything else.
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
+    loss_fn = partial(loss_fn, **loss_kwargs)
 
     # Always wrap everything -- computing gradients, running the optimiser, updating
     # the model -- into a single JIT region. This ensures things run as fast as
     # possible.
-    @eqx.filter_jit
+    # @eqx.filter_jit
     def make_step(
         model: Module,
         opt_state: PyTree,
-        x: Float[Array, "batch 784"],
+        x: ArrayLike,
+        y: ArrayLike,
         rng_key: PRNGKeyArray,
     ):
 
         free_params, frozen_params = freeze_parameters(model)
         (loss_value, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
-            free_params, frozen_params, x, rng_key
+            free_params, frozen_params, x, y, rng_key
         )
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
@@ -63,7 +68,7 @@ def train(
     )
 
     t0 = time.time()
-    for epoch, (x, _) in zip(range(epochs), infinite_trainloader()):
+    for epoch, (x, y) in zip(range(epochs), infinite_trainloader()):
         epoch_key, eval_key, rng_key = jr.split(rng_key, 3)
         # for x, _ in prog_table(trainloader):
         #     x = x.numpy()
@@ -71,7 +76,8 @@ def train(
         # train_losses.append(train_loss)
 
         x = x.numpy()
-        model, opt_state, train_loss, aux = make_step(model, opt_state, x, epoch_key)
+        y = y.numpy()
+        model, opt_state, train_loss, aux = make_step(model, opt_state, x, y, epoch_key)
         train_losses.append(train_loss)
         train_auxes.append(aux)
 
@@ -80,9 +86,11 @@ def train(
         if epoch % print_every == 0:
             test_loss = []
             test_aux = []
-            for x, _ in testloader:
+            for x, y in testloader:
                 x = x.numpy()
-                loss, aux = loss_fn(model, x, eval_key)
+                y = y.numpy()
+                free_params, frozen_params = freeze_parameters(model)
+                loss, aux = loss_fn(free_params, frozen_params, x, y, eval_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
             test_loss = np.sum(test_loss) / len(test_loss)
