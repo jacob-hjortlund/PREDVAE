@@ -59,7 +59,7 @@ class GaussianCoder(Module):
         return mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
 
     def log_prob(self, x, mu, log_sigma):
-        return jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma))
+        return jnp.sum(jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma)))
 
     def __call__(self, x: ArrayLike, rng_key: ArrayLike):
         output = self.mlp(x)
@@ -119,7 +119,7 @@ class CategoricalCoder(Module):
         z = self.sample(logits, rng_key)
         z = z.astype(jnp.int32)
 
-        return z, logits
+        return z, (logits,)
 
 
 class VAE(Module):
@@ -185,13 +185,13 @@ class SSVAE(Module):
         return y, y_pars
 
     def encode(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
-        _x = jnp.concatenate([x, y])
+        _x = jnp.column_stack([jnp.atleast_2d(x), jnp.atleast_2d(y)]).squeeze()
         z, z_pars = self.encoder(_x, rng_key)
 
         return z, z_pars
 
     def decode(self, z: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
-        _z = jnp.concatenate([z, y])
+        _z = jnp.column_stack([jnp.atleast_2d(z), jnp.atleast_2d(y)]).squeeze()
         x_hat, x_pars = self.decoder(_z, rng_key)
 
         return x_hat, x_pars
