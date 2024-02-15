@@ -36,7 +36,7 @@ def train(
     # Always wrap everything -- computing gradients, running the optimiser, updating
     # the model -- into a single JIT region. This ensures things run as fast as
     # possible.
-    # @eqx.filter_jit
+    @eqx.filter_jit
     def make_step(
         model: Module,
         opt_state: PyTree,
