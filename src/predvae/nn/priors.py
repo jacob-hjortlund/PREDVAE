@@ -29,9 +29,7 @@ class Gaussian(Module):
         self.log_sigma = log_sigma
 
     def log_pdf(self, x: ArrayLike) -> ArrayLike:
-        return jnp.sum(
-            jstats.norm.logpdf(x, self.mu.layer, jnp.exp(self.log_sigma.layer))
-        )
+        return jnp.sum(jstats.norm.logpdf(x, self.mu, jnp.exp(self.log_sigma)))
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return self.log_pdf(x)

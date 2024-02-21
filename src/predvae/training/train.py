@@ -6,15 +6,14 @@ import numpy as np
 import equinox as eqx
 import jax.random as jr
 
-from jax import Array
 from equinox import Module
+from jaxtyping import PyTree
+from functools import partial
 from jax.typing import ArrayLike
+from jax.tree_util import tree_map
 from jax.random import PRNGKeyArray
 from collections.abc import Callable
 from progress_table import ProgressTable
-from jaxtyping import Array, Float, PyTree
-from .util import freeze_parameters
-from functools import partial
 
 
 def train(
@@ -27,11 +26,15 @@ def train(
     epochs: int,
     print_every: int,
     loss_kwargs: dict = {},
+    filter_spec: PyTree = None,
 ) -> Module:
     # Just like earlier: It only makes sense to train the arrays in our model,
     # so filter out everything else.
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
     loss_fn = partial(loss_fn, **loss_kwargs)
+
+    if filter_spec is None:
+        filter_spec = tree_map(lambda x: True, model)
 
     # Always wrap everything -- computing gradients, running the optimiser, updating
     # the model -- into a single JIT region. This ensures things run as fast as
@@ -45,7 +48,7 @@ def train(
         rng_key: PRNGKeyArray,
     ):
 
-        free_params, frozen_params = freeze_parameters(model)
+        free_params, frozen_params = eqx.partition(model, filter_spec)
         (loss_value, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
             free_params, frozen_params, x, y, rng_key
         )
@@ -89,7 +92,7 @@ def train(
             for x, y in testloader:
                 x = x.numpy()
                 y = y.numpy()
-                free_params, frozen_params = freeze_parameters(model)
+                free_params, frozen_params = eqx.partition(model, filter_spec)
                 loss, aux = loss_fn(free_params, frozen_params, x, y, eval_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
