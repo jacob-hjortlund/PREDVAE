@@ -69,15 +69,6 @@ def train(
         loss_value, aux = loss_fn(free_params, frozen_params, x, y, rng_key)
         return loss_value, aux
 
-    # Loop over our training dataset as many times as we need.
-    def infinite_trainloader():
-        while True:
-            yield from trainloader
-
-    def infinite_testloader():
-        while True:
-            yield from testloader
-
     train_losses = []
     train_auxes = []
     test_losses = []
@@ -93,11 +84,14 @@ def train(
         batch_losses = []
         batch_auxes = []
 
-        for _, batch in zip(
-            prog_table(train_batches_per_epoch), infinite_trainloader()
-        ):
+        iterable_trainloader = iter(trainloader)
+        iterable_testloader = iter(testloader)
+
+        for _ in prog_table(range(train_batches_per_epoch)):
+
             batch_key, rng_key = jr.split(rng_key, 2)
 
+            batch = next(iterable_trainloader)
             if len(batch) == 2:
                 x, y = batch
             else:
@@ -124,9 +118,11 @@ def train(
             test_loss = []
             test_aux = []
 
-            for _, batch in zip(range(test_batches_per_epoch), testloader):
+            for _ in range(test_batches_per_epoch):
+
                 batch_key, rng_key = jr.split(rng_key, 2)
 
+                batch = next(iterable_testloader)
                 if len(batch) == 2:
                     x, y = batch
                 else:
