@@ -2,7 +2,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 
-from jax import vmap
+from jax import vmap, pmap
 from equinox import Module
 from .util import filter_cond
 from jax.typing import ArrayLike
@@ -167,7 +167,6 @@ def _sample_loss(
     return loss_components
 
 
-@eqx.filter_jit
 def ssvae_loss(
     free_params: Module,
     frozen_params: Module,
@@ -177,6 +176,7 @@ def ssvae_loss(
     alpha: ArrayLike,
     missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,
+    device_count: int = 1,
 ) -> Module:
     """
     Batch loss function for a semi-supervised VAE classifier.
@@ -194,7 +194,11 @@ def ssvae_loss(
     """
 
     model = eqx.combine(free_params, frozen_params)
-    loss_components = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))(
+
+    vmapped_sample_loss = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))(
+        model, x, y, rng_key, missing_target_value, target_transform
+    )
+    loss_components = vmapped_sample_loss(
         model, x, y, rng_key, missing_target_value, target_transform
     )
     batch_unsupervised_loss = jnp.mean(

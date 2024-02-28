@@ -17,14 +17,24 @@ class StratifiedBatchSampler(Sampler):
         self.y = y
         self.shuffle = shuffle
         self.batch_size = batch_size
-        self.n_batches = len(y) // batch_size
+        self.len_y = len(y)
+        self.closest_divisible = self._closest(self.len_y, batch_size)
+        self.n_batches = self.closest_divisible // batch_size
         self._X = np.random.randn(len(y))
         self.skf = StratifiedKFold(n_splits=self.n_batches, shuffle=shuffle)
+
+    def _closest(self, n, divisor):
+        return n - (n % divisor)
 
     def __iter__(self):
         if self.shuffle:
             self.skf.random_state = np.random.randint(0, 1e8)
-        for _, test_index in self.skf.split(self._X, self.y):
+        idx_reduced = np.random.choice(
+            np.arange(self.len_y), self.closest_divisible, replace=False
+        )
+        X_reduced = self._X[idx_reduced]
+        y_reduced = self.y[idx_reduced]
+        for _, test_index in self.skf.split(X_reduced, y_reduced):
             yield test_index
 
     def __len__(self):

@@ -41,7 +41,7 @@ def train(
     # the model -- into a single JIT region. This ensures things run as fast as
     # possible.
     @eqx.filter_jit
-    def make_step(
+    def make_train_step(
         model: Module,
         opt_state: PyTree,
         x: ArrayLike,
@@ -56,6 +56,17 @@ def train(
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss_value, aux
+
+    @eqx.filter_jit
+    def make_eval_step(
+        model: Module,
+        x: ArrayLike,
+        y: ArrayLike,
+        rng_key: PRNGKeyArray,
+    ):
+        free_params, frozen_params = eqx.partition(model, filter_spec)
+        loss_value, aux = loss_fn(free_params, frozen_params, x, y, rng_key)
+        return loss_value, aux
 
     # Loop over our training dataset as many times as we need.
     def infinite_trainloader():
@@ -88,7 +99,9 @@ def train(
         y = y.numpy()
         y[np.isnan(y)] = -9999.0
 
-        model, opt_state, train_loss, aux = make_step(model, opt_state, x, y, epoch_key)
+        model, opt_state, train_loss, aux = make_train_step(
+            model, opt_state, x, y, epoch_key
+        )
         train_losses.append(train_loss)
         train_auxes.append(aux)
 
@@ -108,8 +121,7 @@ def train(
                 y = y.numpy()
                 y[np.isnan(y)] = -9999.0
 
-                free_params, frozen_params = eqx.partition(model, filter_spec)
-                loss, aux = loss_fn(free_params, frozen_params, x, y, eval_key)
+                loss, aux = make_eval_step(model, x, y, epoch_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
 

@@ -1,4 +1,12 @@
 import os
+import re
+
+# xla_flags = os.getenv("XLA_FLAGS", "")
+# xla_flags = re.sub(r"--xla_force_host_platform_device_count=\S+", "", xla_flags).split()
+# os.environ["XLA_FLAGS"] = " ".join(
+#     ["--xla_force_host_platform_device_count={}".format(4)] + xla_flags
+# )
+
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -18,6 +26,7 @@ from jax.tree_util import tree_map
 from src.predvae.training import train, ssvae_loss
 from src.predvae.data import HDF5Dataset, StratifiedBatchSampler
 
+
 INPUT_SIZE = 27
 LATENT_SIZE = 2
 PREDICTOR_SIZE = 1
@@ -32,6 +41,9 @@ MISSING_TARGET_VALUE = -9999.0
 DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/SS_Splits")
 SPLIT = 0
 NUM_WORKERS = 0
+N_DEVICES = jax.device_count()
+
+print(f"Number of devices: {N_DEVICES}")
 
 rng_key = jax.random.PRNGKey(SEED)
 
@@ -82,6 +94,8 @@ N_UNSUP = np.count_nonzero(~z)
 N_SUP = np.count_nonzero(z)
 ALPHA = N_UNSUP / N_SUP
 print(f"Unsupervised: {N_UNSUP}, Supervised: {N_SUP}, alpha: {ALPHA}")
+
+print(N_SUP + N_UNSUP)
 
 # Define the model
 
@@ -164,6 +178,7 @@ trained_ssvae, train_losses, test_losses, train_auxes, test_auxes = train(
     loss_kwargs={
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
+        "device_count": N_DEVICES,
     },
 )
 
