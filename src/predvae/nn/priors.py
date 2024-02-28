@@ -1,22 +1,10 @@
 import jax
-import time
-import optax
-import torch
 
-import equinox as eqx
-import numpy as np
 import jax.numpy as jnp
-import jax.random as jr
 
-from tqdm import tqdm
 from equinox import Module
 from jax.typing import ArrayLike
-from src.predvae.nn.mlp import MLP
-from jax.random import PRNGKeyArray
-from collections.abc import Callable
-from jax.experimental import checkify
 from jax.scipy import stats as jstats
-from progress_table import ProgressTable
 
 
 class Gaussian(Module):
