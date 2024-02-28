@@ -93,7 +93,9 @@ def train(
         batch_losses = []
         batch_auxes = []
 
-        for _, batch in zip(range(train_batches_per_epoch), infinite_trainloader()):
+        for _, batch in zip(
+            prog_table(train_batches_per_epoch), infinite_trainloader()
+        ):
             batch_key, rng_key = jr.split(rng_key, 2)
 
             if len(batch) == 2:
