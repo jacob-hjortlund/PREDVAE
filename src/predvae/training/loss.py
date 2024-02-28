@@ -111,7 +111,7 @@ def _supervised_sample_loss(
         latent_log_prob - latent_log_prior - target_log_prior - reconstruction_log_prob
     )
 
-    loss = jnp.array([jnp.nan, supervised_loss, target_log_prob])
+    loss = jnp.array([-9999.0, supervised_loss, target_log_prob])
 
     return loss
 
@@ -143,7 +143,7 @@ def _unsupervised_sample_loss(
         - reconstruction_log_prob
     )
 
-    loss = jnp.array([unsupervised_loss, jnp.nan, jnp.nan])
+    loss = jnp.array([unsupervised_loss, -9999.0, -9999.0])
 
     return loss
 
@@ -153,11 +153,12 @@ def _sample_loss(
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
+    missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,
 ):
 
     loss_components = filter_cond(
-        pred=y == -1,
+        pred=y == missing_target_value,
         true_f=_unsupervised_sample_loss,
         false_f=_supervised_sample_loss,
         func_args=(model, x, target_transform(y), rng_key),
@@ -166,6 +167,7 @@ def _sample_loss(
     return loss_components
 
 
+@eqx.filter_jit
 def ssvae_loss(
     free_params: Module,
     frozen_params: Module,
@@ -173,6 +175,7 @@ def ssvae_loss(
     y: ArrayLike,
     rng_key: PRNGKeyArray,
     alpha: ArrayLike,
+    missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,
 ) -> Module:
     """
@@ -191,16 +194,23 @@ def ssvae_loss(
     """
 
     model = eqx.combine(free_params, frozen_params)
-    loss_components = vmap(_sample_loss, in_axes=(None, 0, 0, None, None))(
-        model, x, y, rng_key, target_transform
+    loss_components = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))(
+        model, x, y, rng_key, missing_target_value, target_transform
     )
-    batch_unsupervised_loss = jnp.nanmean(loss_components[:, 0])
-    batch_supervised_loss = jnp.nanmean(loss_components[:, 1])
-    batch_target_loss = -alpha * jnp.nanmean(loss_components[:, 2])
+    batch_unsupervised_loss = jnp.mean(
+        loss_components[:, 0], where=loss_components[:, 0] != -9999.0
+    )
+    batch_supervised_loss = jnp.mean(
+        loss_components[:, 1], where=loss_components[:, 1] != -9999.0
+    )
+    batch_target_loss = -alpha * jnp.mean(
+        loss_components[:, 2], where=loss_components[:, 2] != -9999.0
+    )
 
-    batch_loss = jnp.nansum(
-        jnp.asarray([batch_unsupervised_loss, batch_supervised_loss, batch_target_loss])
+    sum_array = jnp.asarray(
+        [batch_unsupervised_loss, batch_supervised_loss, batch_target_loss]
     )
+    batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
 
     return batch_loss, jnp.array(
         [
