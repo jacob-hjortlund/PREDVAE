@@ -24,6 +24,7 @@ def train(
     optim: optax.GradientTransformation,
     loss_fn: Callable,
     epochs: int,
+    test_epochs: int,
     print_every: int,
     loss_kwargs: dict = {},
     filter_spec: PyTree = None,
@@ -61,6 +62,10 @@ def train(
         while True:
             yield from trainloader
 
+    def infinite_testloader():
+        while True:
+            yield from testloader
+
     train_losses = []
     train_auxes = []
     test_losses = []
@@ -71,15 +76,18 @@ def train(
     )
 
     t0 = time.time()
-    for epoch, (x, y) in zip(range(epochs), infinite_trainloader()):
-        epoch_key, eval_key, rng_key = jr.split(rng_key, 3)
-        # for x, _ in prog_table(trainloader):
-        #     x = x.numpy()
-        #     model, opt_state, train_loss = make_step(model, opt_state, x, epoch_key)
-        # train_losses.append(train_loss)
+    for epoch, batch in zip(range(epochs), infinite_trainloader()):
 
+        epoch_key, eval_key, rng_key = jr.split(rng_key, 3)
+
+        if len(batch) == 2:
+            x, y = batch
+        else:
+            x, y, _ = batch
         x = x.numpy()
         y = y.numpy()
+        y[np.isnan(y)] = -9999.0
+
         model, opt_state, train_loss, aux = make_step(model, opt_state, x, y, epoch_key)
         train_losses.append(train_loss)
         train_auxes.append(aux)
@@ -89,13 +97,22 @@ def train(
         if epoch % print_every == 0:
             test_loss = []
             test_aux = []
-            for x, y in testloader:
+
+            for test_epoch, batch in zip(range(test_epochs), testloader):
+
+                if len(batch) == 2:
+                    x, y = batch
+                else:
+                    x, y, _ = batch
                 x = x.numpy()
                 y = y.numpy()
+                y[np.isnan(y)] = -9999.0
+
                 free_params, frozen_params = eqx.partition(model, filter_spec)
                 loss, aux = loss_fn(free_params, frozen_params, x, y, eval_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
+
             test_loss = np.sum(test_loss) / len(test_loss)
             test_losses.append(test_loss)
             test_auxes.append(test_aux)
