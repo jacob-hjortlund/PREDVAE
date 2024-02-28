@@ -31,10 +31,11 @@ INPUT_SIZE = 27
 LATENT_SIZE = 2
 PREDICTOR_SIZE = 1
 TRAIN_BATCH_SIZE = 1024
-TEST_BATCH_SIZE = 8192
+TEST_BATCH_SIZE = 1024
 LEARNING_RATE = 3e-4
 EPOCHS = 1000
-TEST_EPOCHS = 1
+TRAIN_BATCHES_PER_EPOCH = 1
+TEST_BATCHES_PER_EPOCH = 8
 PRINT_EVERY = 100
 SEED = 5678
 MISSING_TARGET_VALUE = -9999.0
@@ -172,13 +173,13 @@ trained_ssvae, train_losses, test_losses, train_auxes, test_auxes = train(
     optim=optim,
     loss_fn=ssvae_loss,
     epochs=EPOCHS,
-    test_epochs=TEST_EPOCHS,
+    train_batches_per_epoch=TRAIN_BATCHES_PER_EPOCH,
+    test_batches_per_epoch=TEST_BATCHES_PER_EPOCH,
     print_every=PRINT_EVERY,
     filter_spec=filter_spec,
     loss_kwargs={
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
-        "device_count": N_DEVICES,
     },
 )
 

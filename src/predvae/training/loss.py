@@ -195,9 +195,7 @@ def ssvae_loss(
 
     model = eqx.combine(free_params, frozen_params)
 
-    vmapped_sample_loss = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))(
-        model, x, y, rng_key, missing_target_value, target_transform
-    )
+    vmapped_sample_loss = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))
     loss_components = vmapped_sample_loss(
         model, x, y, rng_key, missing_target_value, target_transform
     )

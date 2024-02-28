@@ -24,7 +24,8 @@ def train(
     optim: optax.GradientTransformation,
     loss_fn: Callable,
     epochs: int,
-    test_epochs: int,
+    train_batches_per_epoch: int,
+    test_batches_per_epoch: int,
     print_every: int,
     loss_kwargs: dict = {},
     filter_spec: PyTree = None,
@@ -87,31 +88,42 @@ def train(
     )
 
     t0 = time.time()
-    for epoch, batch in zip(range(epochs), infinite_trainloader()):
+    for epoch in range(epochs):
 
-        epoch_key, eval_key, rng_key = jr.split(rng_key, 3)
+        batch_losses = []
+        batch_auxes = []
 
-        if len(batch) == 2:
-            x, y = batch
-        else:
-            x, y, _ = batch
-        x = x.numpy()
-        y = y.numpy()
-        y[np.isnan(y)] = -9999.0
+        for _, batch in zip(range(train_batches_per_epoch), infinite_trainloader()):
+            batch_key, rng_key = jr.split(rng_key, 2)
 
-        model, opt_state, train_loss, aux = make_train_step(
-            model, opt_state, x, y, epoch_key
-        )
-        train_losses.append(train_loss)
-        train_auxes.append(aux)
+            if len(batch) == 2:
+                x, y = batch
+            else:
+                x, y, _ = batch
+            x = x.numpy()
+            y = y.numpy()
+            y[np.isnan(y)] = -9999.0
+
+            model, opt_state, train_loss, aux = make_train_step(
+                model, opt_state, x, y, batch_key
+            )
+            batch_losses.append(train_loss)
+            batch_auxes.append(aux)
 
         t1 = time.time()
+
+        epoch_train_loss = np.mean(np.asarray(batch_losses), axis=0)
+        train_losses.append(epoch_train_loss)
+
+        epoch_train_aux = np.mean(np.asarray(batch_auxes), axis=0)
+        train_auxes.append(epoch_train_aux)
 
         if epoch % print_every == 0:
             test_loss = []
             test_aux = []
 
-            for test_epoch, batch in zip(range(test_epochs), testloader):
+            for _, batch in zip(range(test_batches_per_epoch), testloader):
+                batch_key, rng_key = jr.split(rng_key, 2)
 
                 if len(batch) == 2:
                     x, y = batch
@@ -121,12 +133,13 @@ def train(
                 y = y.numpy()
                 y[np.isnan(y)] = -9999.0
 
-                loss, aux = make_eval_step(model, x, y, epoch_key)
+                loss, aux = make_eval_step(model, x, y, batch_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
 
-            test_loss = np.sum(test_loss) / len(test_loss)
+            test_loss = np.mean(np.asarray(test_loss), axis=0)
             test_losses.append(test_loss)
+            test_aux = np.mean(np.asarray(test_aux), axis=0)
             test_auxes.append(test_aux)
             prog_table.update("Epoch", epoch)
             prog_table.update("Train Loss", train_loss)
