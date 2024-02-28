@@ -76,6 +76,15 @@ def train(
 
     prog_table = ProgressTable(
         columns=["Epoch", "Train Loss", "Test Loss", "Epoch Rate [Epochs / Hour]"],
+        refresh_rate=100,
+        num_decimal_places=4,
+        default_column_width=8,
+        default_column_alignment="center",
+        print_row_on_update=True,
+        reprint_header_every_n_rows=30,
+        custom_format=None,
+        embedded_progress_bar=False,
+        table_style="normal",
     )
 
     t0 = time.time()
@@ -87,7 +96,7 @@ def train(
         iterable_trainloader = iter(trainloader)
         iterable_testloader = iter(testloader)
 
-        for _ in prog_table(range(train_batches_per_epoch)):
+        for _ in prog_table(10):
 
             batch_key, rng_key = jr.split(rng_key, 2)
 
@@ -139,6 +148,7 @@ def train(
             test_losses.append(test_loss)
             test_aux = np.mean(np.asarray(test_aux), axis=0)
             test_auxes.append(test_aux)
+
             prog_table.update("Epoch", epoch)
             prog_table.update("Train Loss", train_loss)
             prog_table.update("Test Loss", test_loss)
