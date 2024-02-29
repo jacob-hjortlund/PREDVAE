@@ -92,8 +92,9 @@ def train(
         table_style="normal",
     )
 
-    t0 = time.time()
+    epoch_rates = []
     for epoch in range(epochs):
+        t0 = time.time()
 
         batch_losses = []
         batch_auxes = []
@@ -128,6 +129,9 @@ def train(
         epoch_train_aux = np.mean(np.asarray(batch_auxes), axis=0)
         train_auxes.append(epoch_train_aux)
 
+        epoch_rate = 60**2 / (t1 - t0)
+        epoch_rates.append(epoch_rate)
+
         if epoch % print_every == 0:
             test_loss = []
             test_aux = []
@@ -157,9 +161,7 @@ def train(
             prog_table.update("Epoch", epoch)
             prog_table.update("Train Loss", train_loss)
             prog_table.update("Test Loss", test_loss)
-            prog_table.update(
-                "Epoch Rate [Epochs / Hour]", (epoch + 1) * 60**2 / (t1 - t0)
-            )
+            prog_table.update("Epoch Rate [Epochs / Hour]", np.mean(epoch_rates))
             prog_table.next_row()
 
     prog_table.close()
