@@ -29,14 +29,16 @@ class GaussianCoder(Module):
         depth: int,
         activation: Callable,
         key: PRNGKeyArray,
+        use_spectral_norm: bool = False,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__()
         self.mlp = MLP(
             in_size=input_size,
             out_size=output_size + 1,
             width_size=width,
             depth=depth,
+            use_spectral_norm=use_spectral_norm,
             key=key,
             activation=activation,
             **kwargs,
@@ -53,13 +55,13 @@ class GaussianCoder(Module):
     def log_prob(self, x, mu, log_sigma):
         return jnp.sum(jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma)))
 
-    def __call__(self, x: ArrayLike, rng_key: ArrayLike):
-        output = self.mlp(x)
+    def __call__(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+        output, output_state = self.mlp(x, input_state)
         mu = output[..., : self.output_size]
         log_sigma = output[..., self.output_size :] * jnp.ones_like(mu)
         z = self.sample(mu, log_sigma, rng_key)
 
-        return z, (mu, log_sigma)
+        return z, (mu, log_sigma), output_state
 
 
 class CategoricalCoder(Module):
@@ -106,12 +108,12 @@ class CategoricalCoder(Module):
         probs = jax.nn.softmax(logits)
         return jstats.multinomial.logpmf(x, 1, probs)
 
-    def __call__(self, x: ArrayLike, rng_key: ArrayLike):
-        logits = self.mlp(x)
+    def __call__(self, x: ArrayLike, state: eqx.nn.State, rng_key: ArrayLike):
+        logits, state = self.mlp(x, state)
         z = self.sample(logits, rng_key)
         z = z.astype(jnp.int32)
 
-        return z, (logits,)
+        return z, (logits,), state
 
 
 class VAE(Module):
@@ -129,22 +131,22 @@ class VAE(Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def encode(self, x: ArrayLike, rng_key: ArrayLike):
-        z, z_pars = self.encoder(x, rng_key)
+    def encode(self, x: ArrayLike, state: eqx.nn.State, rng_key: ArrayLike):
+        z, z_pars, state = self.encoder(x, state, rng_key)
 
-        return z, z_pars
+        return z, z_pars, state
 
-    def decode(self, z: ArrayLike, rng_key: ArrayLike):
-        x_hat, x_pars = self.decoder(z, rng_key)
+    def decode(self, z: ArrayLike, state: eqx.nn.State, rng_key: ArrayLike):
+        x_hat, x_pars, state = self.decoder(z, state, rng_key)
 
-        return x_hat, x_pars
+        return x_hat, x_pars, state
 
-    def __call__(self, x: ArrayLike, rng_key: ArrayLike):
+    def __call__(self, x: ArrayLike, state: eqx.nn.State, rng_key: ArrayLike):
         encoder_key, decoder_key = jr.split(rng_key)
-        z, z_pars = self.encode(x, encoder_key)
-        x_hat, x_pars = self.decode(z, decoder_key)
+        z, z_pars, state = self.encode(x, state, encoder_key)
+        x_hat, x_pars, state = self.decode(z, state, decoder_key)
 
-        return x_hat, z_pars
+        return x_hat, z_pars, state
 
 
 class SSVAE(Module):
@@ -171,27 +173,33 @@ class SSVAE(Module):
         self.latent_prior = latent_prior
         self.target_prior = target_prior
 
-    def predict(self, x: ArrayLike, rng_key: ArrayLike):
-        y, y_pars = self.predictor(x, rng_key)
+    def predict(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+        y, y_pars, output_state = self.predictor(x, input_state, rng_key)
 
-        return y, y_pars
+        return y, y_pars, output_state
 
-    def encode(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+    def encode(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
         _x = jnp.column_stack([jnp.atleast_2d(x), jnp.atleast_2d(y)]).squeeze()
-        z, z_pars = self.encoder(_x, rng_key)
+        z, z_pars, output_state = self.encoder(_x, input_state, rng_key)
 
-        return z, z_pars
+        return z, z_pars, output_state
 
-    def decode(self, z: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+    def decode(
+        self, z: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
         _z = jnp.column_stack([jnp.atleast_2d(z), jnp.atleast_2d(y)]).squeeze()
-        x_hat, x_pars = self.decoder(_z, rng_key)
+        x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
 
-        return x_hat, x_pars
+        return x_hat, x_pars, output_state
 
-    def __call__(self, x: ArrayLike, y: ArrayLike, rng_key: ArrayLike):
+    def __call__(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
         predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
-        y, y_pars = self.predict(x, predictor_key)
-        z, z_pars = self.encode(x, y, encoder_key)
-        x_hat, x_pars = self.decode(z, y, decoder_key)
+        y, y_pars, predictor_state = self.predict(x, input_state, predictor_key)
+        z, z_pars, encoder_state = self.encode(x, y, predictor_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
 
-        return y, z, x_hat, y_pars, z_pars, x_pars
+        return y, z, x_hat, y_pars, z_pars, x_pars, decoder_state

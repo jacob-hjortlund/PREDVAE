@@ -19,6 +19,7 @@ from progress_table import ProgressTable
 def train(
     rng_key,
     model: Module,
+    state: eqx.nn.State,
     trainloader: torch.utils.data.DataLoader,
     testloader: torch.utils.data.DataLoader,
     optim: optax.GradientTransformation,
@@ -44,6 +45,7 @@ def train(
     @eqx.filter_jit
     def make_train_step(
         model: Module,
+        input_state: eqx.nn.State,
         opt_state: PyTree,
         x: ArrayLike,
         y: ArrayLike,
@@ -51,23 +53,26 @@ def train(
     ):
 
         free_params, frozen_params = eqx.partition(model, filter_spec)
-        (loss_value, aux), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(
-            free_params, frozen_params, x, y, rng_key
-        )
+        (loss_value, (aux, output_state)), grads = eqx.filter_value_and_grad(
+            loss_fn, has_aux=True
+        )(free_params, frozen_params, input_state, x, y, rng_key)
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
-        return model, opt_state, loss_value, aux
+        return model, output_state, opt_state, loss_value, aux
 
-    @eqx.filter_jit
+    # @eqx.filter_jit
     def make_eval_step(
         model: Module,
+        input_state: eqx.nn.State,
         x: ArrayLike,
         y: ArrayLike,
         rng_key: PRNGKeyArray,
     ):
         free_params, frozen_params = eqx.partition(model, filter_spec)
-        loss_value, aux = loss_fn(free_params, frozen_params, x, y, rng_key)
-        return loss_value, aux
+        loss_value, (aux, output_state) = loss_fn(
+            free_params, frozen_params, input_state, x, y, rng_key
+        )
+        return loss_value, output_state, aux
 
     train_losses = []
     train_auxes = []
@@ -96,7 +101,7 @@ def train(
         iterable_trainloader = iter(trainloader)
         iterable_testloader = iter(testloader)
 
-        for _ in prog_table(10):
+        for _ in prog_table(train_batches_per_epoch):
 
             batch_key, rng_key = jr.split(rng_key, 2)
 
@@ -109,8 +114,8 @@ def train(
             y = y.numpy()
             y[np.isnan(y)] = -9999.0
 
-            model, opt_state, train_loss, aux = make_train_step(
-                model, opt_state, x, y, batch_key
+            model, state, opt_state, train_loss, aux = make_train_step(
+                model, state, opt_state, x, y, batch_key
             )
             batch_losses.append(train_loss)
             batch_auxes.append(aux)
@@ -140,7 +145,7 @@ def train(
                 y = y.numpy()
                 y[np.isnan(y)] = -9999.0
 
-                loss, aux = make_eval_step(model, x, y, batch_key)
+                loss, state, aux = make_eval_step(model, state, x, y, batch_key)
                 test_loss.append(loss)
                 test_aux.append(aux)
 
@@ -159,4 +164,4 @@ def train(
 
     prog_table.close()
 
-    return model, train_losses, test_losses, train_auxes, test_auxes
+    return model, state, train_losses, test_losses, train_auxes, test_auxes

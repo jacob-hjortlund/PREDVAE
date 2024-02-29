@@ -2,6 +2,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 
+from jax.lax import cond
 from jax import vmap, pmap
 from equinox import Module
 from .util import filter_cond
@@ -90,14 +91,15 @@ def gaussian_vae_loss(
 
 def _supervised_sample_loss(
     model: Module,
+    input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
 ):
     encoder_key, decoder_key = jr.split(rng_key, 2)
-    _, y_pars = model.predict(x, encoder_key)
-    z, z_pars = model.encode(x, y, encoder_key)
-    x_hat, x_pars = model.decode(z, y, decoder_key)
+    _, y_pars, predictor_state = model.predict(x, input_state, encoder_key)
+    z, z_pars, encoder_state = model.encode(x, y, predictor_state, encoder_key)
+    x_hat, x_pars, decoder_state = model.decode(z, y, encoder_state, decoder_key)
 
     target_log_prior = model.target_prior(y)
     target_log_prob = model.predictor.log_prob(y, *y_pars)
@@ -113,19 +115,20 @@ def _supervised_sample_loss(
 
     loss = jnp.array([-9999.0, supervised_loss, target_log_prob])
 
-    return loss
+    return loss, decoder_state
 
 
 def _unsupervised_sample_loss(
     model: Module,
+    input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
 ):
     encoder_key, predictor_key, decoder_key = jr.split(rng_key, 3)
-    y, y_pars = model.predict(x, predictor_key)
-    z, z_pars = model.encode(x, y, encoder_key)
-    x_hat, x_pars = model.decode(z, y, decoder_key)
+    y, y_pars, predictor_state = model.predict(x, input_state, predictor_key)
+    z, z_pars, encoder_state = model.encode(x, y, predictor_state, encoder_key)
+    x_hat, x_pars, decoder_state = model.decode(z, y, encoder_state, decoder_key)
 
     target_log_prior = model.target_prior(y)
     target_log_prob = model.predictor.log_prob(y, *y_pars)
@@ -145,11 +148,12 @@ def _unsupervised_sample_loss(
 
     loss = jnp.array([unsupervised_loss, -9999.0, -9999.0])
 
-    return loss
+    return loss, decoder_state
 
 
 def _sample_loss(
     model: Module,
+    input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
@@ -157,26 +161,56 @@ def _sample_loss(
     target_transform: Callable = lambda x: x,
 ):
 
-    loss_components = filter_cond(
-        pred=y == missing_target_value,
-        true_f=_unsupervised_sample_loss,
-        false_f=_supervised_sample_loss,
-        func_args=(model, x, target_transform(y), rng_key),
+    unsupervised_loss_args = [model, input_state, x, target_transform(y), rng_key]
+    (dynamic_unsupervised_loss, dynamic_unsupervised_state), (
+        static_unsupervised_loss,
+        static_unsupervised_state,
+    ) = eqx.partition(_unsupervised_sample_loss(*unsupervised_loss_args), eqx.is_array)
+    unsupervised_state = eqx.combine(
+        dynamic_unsupervised_state, static_unsupervised_state
     )
 
-    return loss_components
+    supervised_loss_args = [model, unsupervised_state, x, target_transform(y), rng_key]
+    (dynamic_supervised_loss, dynamic_supervised_state), (
+        static_supervised_loss,
+        static_supervised_state,
+    ) = eqx.partition(_supervised_sample_loss(*supervised_loss_args), eqx.is_array)
+    supervised_state = eqx.combine(dynamic_supervised_state, static_supervised_state)
+
+    static_loss = eqx.error_if(
+        static_unsupervised_loss,
+        static_unsupervised_loss != static_supervised_loss,
+        "Filtered conditional loss functions should have the same static component",
+    )
+
+    dynamic_loss = cond(
+        y == missing_target_value,
+        lambda *_: dynamic_unsupervised_loss,
+        lambda *_: dynamic_supervised_loss,
+    )
+
+    loss_components = eqx.combine(dynamic_loss, static_loss)
+
+    # loss_components, output_state = filter_cond(
+    #     pred=y == missing_target_value,
+    #     true_f=_unsupervised_sample_loss,
+    #     false_f=_supervised_sample_loss,
+    #     func_args=[model, input_state, x, target_transform(y), rng_key],
+    # )
+
+    return loss_components, supervised_state
 
 
 def ssvae_loss(
     free_params: Module,
     frozen_params: Module,
+    input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: PRNGKeyArray,
     alpha: ArrayLike,
     missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,
-    device_count: int = 1,
 ) -> Module:
     """
     Batch loss function for a semi-supervised VAE classifier.
@@ -195,9 +229,11 @@ def ssvae_loss(
 
     model = eqx.combine(free_params, frozen_params)
 
-    vmapped_sample_loss = vmap(_sample_loss, in_axes=(None, 0, 0, None, None, None))
-    loss_components = vmapped_sample_loss(
-        model, x, y, rng_key, missing_target_value, target_transform
+    vmapped_sample_loss = vmap(
+        _sample_loss, in_axes=(None, None, 0, 0, None, None, None), out_axes=(0, None)
+    )
+    loss_components, output_state = vmapped_sample_loss(
+        model, input_state, x, y, rng_key, missing_target_value, target_transform
     )
     batch_unsupervised_loss = jnp.mean(
         loss_components[:, 0], where=loss_components[:, 0] != -9999.0
@@ -214,10 +250,16 @@ def ssvae_loss(
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
 
-    return batch_loss, jnp.array(
-        [
-            batch_unsupervised_loss,
-            batch_supervised_loss,
-            batch_target_loss,
-        ]
+    return (
+        batch_loss,
+        (
+            jnp.array(
+                [
+                    batch_unsupervised_loss,
+                    batch_supervised_loss,
+                    batch_target_loss,
+                ]
+            ),
+            output_state,
+        ),
     )

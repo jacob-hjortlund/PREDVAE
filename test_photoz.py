@@ -26,16 +26,16 @@ from jax.tree_util import tree_map
 from src.predvae.training import train, ssvae_loss
 from src.predvae.data import HDF5Dataset, StratifiedBatchSampler
 
-
 INPUT_SIZE = 27
 LATENT_SIZE = 2
 PREDICTOR_SIZE = 1
+USE_SPEC_NORM = True
 TRAIN_BATCH_SIZE = 1024
 TEST_BATCH_SIZE = 1024
 LEARNING_RATE = 3e-4
 EPOCHS = 1000
 TRAIN_BATCHES_PER_EPOCH = 1
-TEST_BATCHES_PER_EPOCH = 8
+TEST_BATCHES_PER_EPOCH = 1
 PRINT_EVERY = 100
 SEED = 5678
 MISSING_TARGET_VALUE = -9999.0
@@ -44,10 +44,7 @@ SPLIT = 0
 NUM_WORKERS = 0
 N_DEVICES = jax.device_count()
 
-print(f"Number of devices: {N_DEVICES}")
-
 rng_key = jax.random.PRNGKey(SEED)
-
 train_dataset = HDF5Dataset(
     path=DATA_DIR / f"train_{SPLIT}.hdf5",
     resample=True,
@@ -108,6 +105,7 @@ predictor = nn.GaussianCoder(
     depth=2,
     width=[1024, 512],
     activation=jax.nn.tanh,
+    use_spectral_norm=USE_SPEC_NORM,
     key=predictor_key,
 )
 
@@ -117,6 +115,7 @@ encoder = nn.GaussianCoder(
     depth=2,
     width=[1024, 512],
     activation=jax.nn.tanh,
+    use_spectral_norm=USE_SPEC_NORM,
     key=encoder_key,
 )
 
@@ -126,6 +125,7 @@ decoder = nn.GaussianCoder(
     depth=2,
     width=[1024, 512],
     activation=jax.nn.tanh,
+    use_spectral_norm=USE_SPEC_NORM,
     key=decoder_key,
 )
 
@@ -139,8 +139,7 @@ target_prior = nn.Gaussian(
     log_sigma=jnp.zeros(PREDICTOR_SIZE),
 )
 
-
-ssvae = nn.SSVAE(
+ssvae, state = eqx.nn.make_with_state(nn.SSVAE)(
     predictor=predictor,
     encoder=encoder,
     decoder=decoder,
@@ -165,9 +164,10 @@ print(f"TARGET PRIOR LOG_SIGMA: {ssvae.target_prior.log_sigma}\n")
 
 train_key, rng_key = jax.random.split(rng_key, 2)
 optim = optax.adamw(LEARNING_RATE)
-trained_ssvae, train_losses, test_losses, train_auxes, test_auxes = train(
+trained_ssvae, state, train_losses, test_losses, train_auxes, test_auxes = train(
     rng_key=train_key,
     model=ssvae,
+    state=state,
     trainloader=trainloader,
     testloader=valloader,
     optim=optim,

@@ -17,6 +17,45 @@ from jaxtyping import Array, PRNGKeyArray
 _identity = lambda x: x
 
 
+class SpectralNormedLinear(eqx.Module):
+
+    spectral_linear: Union[eqx.nn.SpectralNorm[eqx.nn.Linear], Callable]
+    use_spectral_norm: bool = eqx.field(static=True)
+
+    def __init__(
+        self,
+        in_features: Union[int, Literal["scalar"]],
+        out_features: Union[int, Literal["scalar"]],
+        use_bias: bool = True,
+        use_spectral_norm: bool = True,
+        *,
+        key: PRNGKeyArray,
+    ):
+
+        linear_key, spectral_norm_key = jr.split(key, 2)
+        self.use_spectral_norm = use_spectral_norm
+        if use_spectral_norm:
+            self.spectral_linear = eqx.nn.SpectralNorm(
+                eqx.nn.Linear(
+                    in_features, out_features, use_bias=use_bias, key=linear_key
+                ),
+                weight_name="weight",
+                key=spectral_norm_key,
+            )
+        else:
+            linear = eqx.nn.Linear(
+                in_features, out_features, use_bias=use_bias, key=linear_key
+            )
+            self.spectral_linear = lambda x, state: (linear(x), state)
+
+    def __call__(
+        self, x: Array, input_state: eqx.nn.State
+    ) -> tuple[Array, eqx.nn.State]:
+        x, output_state = self.spectral_linear(x, input_state)
+
+        return x, output_state
+
+
 # TODO: Add BatchNorm
 class MLP(eqx.Module):
     """
@@ -28,6 +67,7 @@ class MLP(eqx.Module):
     final_activation: Callable
     use_bias: bool = eqx.field(static=True)
     use_final_bias: bool = eqx.field(static=True)
+    use_spectral_norm: bool = eqx.field(static=True)
     in_size: Union[int, Literal["scalar"]] = eqx.field(static=True)
     out_size: Union[int, Literal["scalar"]] = eqx.field(static=True)
     width_size: Array = eqx.field(static=True, converter=jnp.asarray)
@@ -44,6 +84,7 @@ class MLP(eqx.Module):
         final_activation: Callable = _identity,
         use_bias: bool = True,
         use_final_bias: bool = True,
+        use_spectral_norm: bool = False,
         **kwargs,
     ):
         """
@@ -78,24 +119,41 @@ class MLP(eqx.Module):
         layers = []
         if depth == 0:
             layers.append(
-                eqx.nn.Linear(in_size, out_size, use_bias=use_final_bias, key=keys[0])
+                SpectralNormedLinear(
+                    in_size,
+                    out_size,
+                    use_bias=use_final_bias,
+                    key=keys[0],
+                    use_spectral_norm=use_spectral_norm,
+                )
             )
         else:
             layers.append(
-                eqx.nn.Linear(in_size, width_size[0], use_bias=use_bias, key=keys[0])
+                SpectralNormedLinear(
+                    in_size,
+                    width_size[0],
+                    use_bias=use_bias,
+                    key=keys[0],
+                    use_spectral_norm=use_spectral_norm,
+                )
             )
             for i in range(depth - 1):
                 layers.append(
-                    eqx.nn.Linear(
+                    SpectralNormedLinear(
                         width_size[i],
                         width_size[i + 1],
                         use_bias=use_bias,
                         key=keys[i + 1],
+                        use_spectral_norm=use_spectral_norm,
                     )
                 )
             layers.append(
-                eqx.nn.Linear(
-                    width_size[-1], out_size, use_bias=use_final_bias, key=keys[-1]
+                SpectralNormedLinear(
+                    width_size[-1],
+                    out_size,
+                    use_bias=use_final_bias,
+                    key=keys[-1],
+                    use_spectral_norm=use_spectral_norm,
                 )
             )
         self.layers = tuple(layers)
@@ -107,8 +165,9 @@ class MLP(eqx.Module):
         self.final_activation = final_activation
         self.use_bias = use_bias
         self.use_final_bias = use_final_bias
+        self.use_spectral_norm = use_spectral_norm
 
-    def __call__(self, x: Array) -> Array:
+    def __call__(self, x: Array, state: eqx.nn.State) -> tuple[Array, eqx.nn.State]:
         """
         Args:
             x (Array): A JAX array with shape (in_size,) or, in the case of in_size='scalar', ().
@@ -118,9 +177,9 @@ class MLP(eqx.Module):
         """
 
         for layer in self.layers[:-1]:
-            x = layer(x)
+            x, state = layer(x, state)
             x = self.activation(x)
-        x = self.layers[-1](x)
+        x, output_state = self.layers[-1](x, state)
         x = self.final_activation(x)
 
-        return x
+        return x, output_state
