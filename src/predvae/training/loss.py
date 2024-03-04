@@ -7,7 +7,6 @@ from jax import vmap, pmap
 from equinox import Module
 from .util import filter_cond
 from jax.typing import ArrayLike
-from jax.random import PRNGKeyArray
 from jax.scipy import stats as jstats
 from collections.abc import Callable
 
@@ -50,7 +49,7 @@ def gaussian_vae_loss(
     frozen_params: Module,
     x: ArrayLike,
     y: ArrayLike,
-    rng_key: PRNGKeyArray,
+    rng_key: ArrayLike,
     *args,
     **kwargs,
 ) -> Module:
@@ -70,7 +69,7 @@ def gaussian_vae_loss(
     def _sample_loss(
         model: Module,
         x: ArrayLike,
-        rng_key: PRNGKeyArray,
+        rng_key: ArrayLike,
     ):
         encoder_key, decoder_key = jr.split(rng_key)
         z, z_pars = model.encode(x, encoder_key)
@@ -94,7 +93,7 @@ def _supervised_sample_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    rng_key: PRNGKeyArray,
+    rng_key: ArrayLike,
 ):
     encoder_key, decoder_key = jr.split(rng_key, 2)
     _, y_pars, predictor_state = model.predict(x, input_state, encoder_key)
@@ -123,7 +122,7 @@ def _unsupervised_sample_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    rng_key: PRNGKeyArray,
+    rng_key: ArrayLike,
 ):
     encoder_key, predictor_key, decoder_key = jr.split(rng_key, 3)
     y, y_pars, predictor_state = model.predict(x, input_state, predictor_key)
@@ -156,7 +155,7 @@ def _sample_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    rng_key: PRNGKeyArray,
+    rng_key: ArrayLike,
     missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,
 ):
@@ -207,7 +206,7 @@ def ssvae_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    rng_key: PRNGKeyArray,
+    rng_key: ArrayLike,
     alpha: ArrayLike,
     missing_target_value: ArrayLike = -1,
     target_transform: Callable = lambda x: x,

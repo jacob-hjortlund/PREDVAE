@@ -11,7 +11,6 @@ from jaxtyping import PyTree
 from functools import partial
 from jax.typing import ArrayLike
 from jax.tree_util import tree_map
-from jax.random import PRNGKeyArray
 from collections.abc import Callable
 from progress_table import ProgressTable
 
@@ -49,7 +48,7 @@ def train(
         opt_state: PyTree,
         x: ArrayLike,
         y: ArrayLike,
-        rng_key: PRNGKeyArray,
+        rng_key: ArrayLike,
     ):
 
         free_params, frozen_params = eqx.partition(model, filter_spec)
@@ -66,7 +65,7 @@ def train(
         input_state: eqx.nn.State,
         x: ArrayLike,
         y: ArrayLike,
-        rng_key: PRNGKeyArray,
+        rng_key: ArrayLike,
     ):
         free_params, frozen_params = eqx.partition(model, filter_spec)
         loss_value, (aux, output_state) = loss_fn(

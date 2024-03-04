@@ -7,17 +7,15 @@ import jax.random as jr
 from equinox import Module
 from jax.typing import ArrayLike
 from src.predvae.nn.mlp import MLP
-from jax.random import PRNGKeyArray
 from collections.abc import Callable
 from jax.scipy import stats as jstats
-from jaxtyping import Array
 
 
 class GaussianCoder(Module):
     mlp: Module
     input_size: int = eqx.field(static=True)
     output_size: int = eqx.field(static=True)
-    width: Array = eqx.field(static=True, converter=jnp.asarray)
+    width: ArrayLike = eqx.field(static=True, converter=jnp.asarray)
     depth: int = eqx.field(static=True)
     activation: Callable
 
@@ -25,10 +23,10 @@ class GaussianCoder(Module):
         self,
         input_size: int,
         output_size: int,
-        width: Array,
+        width: ArrayLike,
         depth: int,
         activation: Callable,
-        key: PRNGKeyArray,
+        key: ArrayLike,
         use_spectral_norm: bool = False,
         **kwargs,
     ):
@@ -68,7 +66,7 @@ class CategoricalCoder(Module):
     mlp: Module
     input_size: int = eqx.field(static=True)
     output_size: int = eqx.field(static=True)
-    width: Array = eqx.field(static=True, converter=jnp.asarray)
+    width: ArrayLike = eqx.field(static=True, converter=jnp.asarray)
     depth: int = eqx.field(static=True)
     activation: Callable
 
@@ -76,10 +74,10 @@ class CategoricalCoder(Module):
         self,
         input_size: int,
         output_size: int,
-        width: Array,
+        width: ArrayLike,
         depth: int,
         activation: Callable,
-        key: PRNGKeyArray,
+        key: ArrayLike,
         **kwargs,
     ):
         super().__init__(**kwargs)
