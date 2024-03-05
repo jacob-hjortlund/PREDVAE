@@ -21,6 +21,7 @@ import jax.numpy as jnp
 import src.predvae.nn as nn
 import matplotlib.pyplot as plt
 
+from umap import UMAP
 from pathlib import Path
 from jax.tree_util import tree_map
 from src.predvae.training import train, ssvae_loss, save
@@ -59,23 +60,40 @@ def transform_redshift(log10_z, log10_z_err, mean, std):
     return z_median, z_err
 
 
+# Model Config
+
 RUN_NAME = "SSVAE_test_early_stopping"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
 USE_SPEC_NORM = True
-TRAIN_BATCH_SIZE = 1024
-TEST_BATCH_SIZE = 1024
-LEARNING_RATE = 3e-4
+
+# Training Config
+
+SEED = 5678
 EPOCHS = 10
 EVAL_EVERY_N = 1
-SEED = 5678
+LEARNING_RATE = 3e-4
+TRAIN_BATCH_SIZE = 1024
+VAL_BATCH_SIZE = 1024
+TRAIN_BATCHES_PER_EPOCH = 1
+VAL_BATCHES_PER_EPOCH = 1
+
 USE_EARLY_STOPPING = True
-EARLY_STOPPING_PATIENCE = 0
+EARLY_STOPPING_PATIENCE = 3
+
+REDUCE_LR_FACTOR = 0.1
+REDUCE_LR_PATIENCE = 2
+REDUCE_LR_ON_PLATEAU = True
+
+# Data Config
+
+SPLIT = 0
 MISSING_TARGET_VALUE = -9999.0
+SPEC_REDUCTION_FACTOR = 10
 DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/SS_Splits")
 SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
-SPLIT = 0
+
 NUM_WORKERS = 0
 if NUM_WORKERS > 0:
     PIN_MEMORY = True
@@ -102,21 +120,25 @@ train_dataset = HDF5Dataset(
     resample=True,
 )
 train_one_hot_redshifts = train_dataset.get_one_hot_redshifts()
-TRAIN_BATCHES_PER_EPOCH = (
-    10  # closest(len(train_one_hot_redshifts), TRAIN_BATCH_SIZE) // TRAIN_BATCH_SIZE
-)
-print(f"\nTrain Batches / Epoch: {TRAIN_BATCHES_PER_EPOCH}")
+
 
 val_dataset = HDF5Dataset(
     path=DATA_DIR / f"val_{SPLIT}.hdf5",
     resample=False,
 )
 val_one_hot_redshifts = val_dataset.get_one_hot_redshifts()
-VAL_BATCHES_PER_EPOCH = (
-    10  # closest(len(val_one_hot_redshifts), TEST_BATCH_SIZE) // TEST_BATCH_SIZE
-)
-print(f"Val Batches / Epoch: {VAL_BATCHES_PER_EPOCH}\n")
 
+if TRAIN_BATCHES_PER_EPOCH is None:
+    TRAIN_BATCHES_PER_EPOCH = (
+        closest(len(train_one_hot_redshifts), TRAIN_BATCH_SIZE) // TRAIN_BATCH_SIZE
+    )
+    print(f"\nTrain Batches / Epoch: {TRAIN_BATCHES_PER_EPOCH}")
+
+if VAL_BATCHES_PER_EPOCH is None:
+    VAL_BATCHES_PER_EPOCH = (
+        closest(len(val_one_hot_redshifts), VAL_BATCH_SIZE) // VAL_BATCH_SIZE
+    )
+    print(f"\nVal Batches / Epoch: {VAL_BATCHES_PER_EPOCH}\n")
 
 trainloader = torch.utils.data.DataLoader(
     train_dataset,
@@ -135,7 +157,7 @@ valloader = torch.utils.data.DataLoader(
     val_dataset,
     sampler=StratifiedBatchSampler(
         val_one_hot_redshifts,
-        batch_size=TEST_BATCH_SIZE,
+        batch_size=VAL_BATCH_SIZE,
         shuffle=True,
     ),
     collate_fn=collate_fn,
@@ -143,6 +165,14 @@ valloader = torch.utils.data.DataLoader(
     pin_memory=PIN_MEMORY,
     persistent_workers=PERSISTENT_WORKERS,
 )
+
+test_dataset = HDF5Dataset(
+    path=DATA_DIR / f"test_{SPLIT}.hdf5",
+    resample=False,
+)
+test_one_hot_redshifts = test_dataset.get_one_hot_redshifts()
+is_spec = test_one_hot_redshifts.astype(bool)
+spec_test_indeces = np.arange(len(is_spec))[is_spec][::SPEC_REDUCTION_FACTOR]
 
 # Define alpha
 
@@ -225,7 +255,16 @@ train_key, rng_key = jax.random.split(rng_key, 2)
 
 optim = optax.adamw(LEARNING_RATE)
 
-trained_ssvae, state, train_losses, val_losses, train_auxes, val_auxes = train(
+(
+    trained_ssvae,
+    state,
+    train_losses,
+    val_losses,
+    train_auxes,
+    val_auxes,
+    lr_history,
+    last_epoch,
+) = train(
     rng_key=train_key,
     model=ssvae,
     state=state,
@@ -240,12 +279,17 @@ trained_ssvae, state, train_losses, val_losses, train_auxes, val_auxes = train(
     checkpoint_dir=SAVE_DIR,
     early_stopping=USE_EARLY_STOPPING,
     early_stopping_patience=EARLY_STOPPING_PATIENCE,
+    reduce_lr_on_plateau=REDUCE_LR_ON_PLATEAU,
+    reduce_lr_patience=REDUCE_LR_PATIENCE,
+    reduce_lr_factor=REDUCE_LR_FACTOR,
     filter_spec=filter_spec,
     loss_kwargs={
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
     },
 )
+
+EPOCHS = last_epoch + 1
 
 # Save the model
 
@@ -265,20 +309,21 @@ np.save(SAVE_DIR / "train_losses.npy", train_losses)
 np.save(SAVE_DIR / "val_losses.npy", val_losses)
 np.save(SAVE_DIR / "train_auxes.npy", train_auxes)
 np.save(SAVE_DIR / "val_auxes.npy", val_auxes)
+np.save(SAVE_DIR / "lr_history.npy", lr_history)
 
 print(
     "\n--------------------------------- PLOTTING LOSSES ---------------------------------\n"
 )
 
-train_epochs = np.arange(1, EPOCHS + 1, 1)
-val_epochs = np.arange(1, EPOCHS + 1, EVAL_EVERY_N)
+train_epochs = np.arange(0, EPOCHS, 1)
+val_epochs = np.arange(0, EPOCHS, EVAL_EVERY_N)
 
-fig, ax = plt.subplots(ncols=2, figsize=(16, 8), sharex=True, sharey=False)
+fig, ax = plt.subplots(ncols=3, figsize=(24, 8), sharex=True, sharey=False)
 
 ax[0].plot(train_epochs, train_losses, label="Train Loss", color=colors[0])
 ax[0].plot(val_epochs, val_losses, label="Val Loss", color=colors[1])
-ax[0].set_xlabel("Epoch")
-ax[0].set_ylabel("Loss")
+ax[0].set_xlabel("Epoch", fontsize=16)
+ax[0].set_ylabel("Loss", fontsize=16)
 ax[0].legend()
 
 ax[1].plot(
@@ -318,55 +363,60 @@ ax[1].plot(
 )
 
 ax[1].legend()
-ax[1].set_xlabel("Epoch")
+ax[1].set_ylabel("Loss", fontsize=16)
+ax[1].set_xlabel("Epoch", fontsize=16)
+
+ax[2].plot(lr_history, label="Learning Rate", color=colors[0])
+ax[2].set_xlabel("Epoch", fontsize=16)
+ax[2].set_ylabel("Learning Rate Scale", fontsize=16)
 
 fig.tight_layout()
-fig.savefig(SAVE_DIR / "losses.png")
+fig.savefig(SAVE_DIR / "losses.png", dpi=300)
 
 print(
     "\n--------------------------------- TEST SET PREDICTIONS ---------------------------------\n"
 )
 
-test_dataset = HDF5Dataset(
-    path=DATA_DIR / f"test_{SPLIT}.hdf5",
-    resample=False,
-)
-test_one_hot_redshifts = test_dataset.get_one_hot_redshifts()
-
-is_spec = test_one_hot_redshifts.astype(bool)
-indeces = np.arange(len(is_spec))[is_spec][::10]
-
-x_true, y_true, info = test_dataset[indeces]
+eval_key, rng_key = jax.random.split(rng_key, 2)
+x_spec_test, normed_log10_z_spec_test, info_spec_test = test_dataset[spec_test_indeces]
 
 inference_ssvae = eqx.nn.inference_mode(trained_ssvae)
-
-eval_key, rng_key = jax.random.split(rng_key, 2)
 inference_ssvae = eqx.Partial(inference_ssvae, input_state=state, rng_key=eval_key)
 
+(
+    normed_log10_z_samples,
+    latent_samples,
+    input_samples,
+    normed_log10_z_pars,
+    latent_pars,
+    input_pars,
+) = evaluate(inference_ssvae, x_spec_test)
 
-y, z, x_hat, y_pars, z_pars, x_pars = evaluate(inference_ssvae, x_true)
 
-
-y_means = y_pars[0].squeeze()
-y_stds = y_pars[1].squeeze()
+normed_log10_z_means, normed_log10_z_stds = normed_log10_z_pars
 z_means, z_std = transform_redshift(
-    y_means, y_stds, test_dataset.log10_redshift_mean, test_dataset.log10_redshift_std
+    normed_log10_z_means,
+    normed_log10_z_stds,
+    test_dataset.log10_redshift_mean,
+    test_dataset.log10_redshift_std,
 )
-
-print(z_means.shape)
-print(z_std.shape)
 
 z_true, _ = transform_redshift(
-    y_true, y_stds, test_dataset.log10_redshift_mean, test_dataset.log10_redshift_std
+    normed_log10_z_spec_test,
+    normed_log10_z_stds,
+    test_dataset.log10_redshift_mean,
+    test_dataset.log10_redshift_std,
 )
 
-print(z_true.shape)
+# Compare spectroscopic and photometric redshifts
 
 fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(8, 8))
 
-# ax.errorbar(z_true, z_means, yerr=z_std, fmt="o")
 ax.scatter(z_true, z_means, s=1, alpha=0.5)
 xlim, ylim = ax.get_xlim(), ax.get_ylim()
+xlim = 0, max(xlim[1], ylim[1])
+ylim = xlim
+
 line = np.linspace(*xlim, 100)
 ax.plot(line, line, "--", color="black")
 ax.set_xlim(xlim)
@@ -377,4 +427,38 @@ ax.set_ylabel("Photo Z", fontsize=16)
 
 fig.tight_layout()
 
-fig.savefig(SAVE_DIR / "z_comparison.png")
+fig.savefig(SAVE_DIR / "spec_v_photo_full.png", dpi=300)
+
+ax.set_xlim(0, 3)
+ax.set_ylim(0, 3)
+fig.tight_layout()
+
+fig.savefig(SAVE_DIR / "spec_v_photo_zoom.png", dpi=300)
+
+# Plot the latent space
+
+log10_z_spec_test = (
+    normed_log10_z_spec_test * test_dataset.log10_redshift_std
+    + test_dataset.log10_redshift_mean
+)
+
+reducer = UMAP()
+latent_umap = reducer.fit_transform(latent_pars[0])
+
+fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(8, 8))
+
+scatter = ax.scatter(
+    latent_umap[:, 0],
+    latent_umap[:, 1],
+    c=log10_z_spec_test,
+    s=1,
+    cmap=sns.color_palette("flare", as_cmap=True),
+    # alpha=0.5,
+)
+cbar = fig.colorbar(scatter, ax=ax)
+cbar.set_label(r"log$_10$(z)", fontsize=16)
+ax.set_xlabel("Axis 1", fontsize=16)
+ax.set_ylabel("Axis 2", fontsize=16)
+
+fig.tight_layout()
+fig.savefig(SAVE_DIR / "latent_umap.png", dpi=300)

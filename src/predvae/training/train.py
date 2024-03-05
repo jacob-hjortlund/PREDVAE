@@ -4,6 +4,7 @@ import torch
 
 import numpy as np
 import equinox as eqx
+import jax.numpy as jnp
 import jax.random as jr
 
 from tqdm import tqdm
@@ -13,7 +14,9 @@ from functools import partial
 from jax.typing import ArrayLike
 from jax.tree_util import tree_map
 from collections.abc import Callable
-from progress_table import ProgressTable
+
+# from optax.contrib import reduce_on_plateau
+from optax import contrib as optax_contrib
 
 
 def save(filename, model):
@@ -43,10 +46,22 @@ def train(
     filter_spec: PyTree = None,
     checkpoint_dir: str = None,
     early_stopping: bool = False,
-    early_stopping_patience: int = 10,
+    early_stopping_patience: int = 500,
+    reduce_lr_on_plateau: bool = False,
+    reduce_lr_patience: int = 100,
+    reduce_lr_factor: float = 0.1,
 ) -> Module:
     # Just like earlier: It only makes sense to train the arrays in our model,
     # so filter out everything else.
+
+    if not reduce_lr_on_plateau:
+        reduce_lr_factor = 1.0
+
+    lr_reducer = optax_contrib.reduce_on_plateau(
+        factor=reduce_lr_factor,
+        patience=reduce_lr_patience,
+    )
+    lr_reducer_state = lr_reducer.init(eqx.filter(model, eqx.is_array))
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
     loss_fn = partial(loss_fn, **loss_kwargs)
 
@@ -61,6 +76,8 @@ def train(
         model: Module,
         input_state: eqx.nn.State,
         opt_state: PyTree,
+        lr_reducer_state: PyTree,
+        val_loss: ArrayLike,
         x: ArrayLike,
         y: ArrayLike,
         rng_key: ArrayLike,
@@ -71,6 +88,9 @@ def train(
             loss_fn, has_aux=True
         )(free_params, frozen_params, input_state, x, y, rng_key)
         updates, opt_state = optim.update(grads, opt_state, model)
+        updates, _ = lr_reducer.update(
+            updates=updates, state=lr_reducer_state, loss=val_loss
+        )
         model = eqx.apply_updates(model, updates)
         return model, output_state, opt_state, loss_value, aux
 
@@ -92,8 +112,20 @@ def train(
     train_auxes = []
     val_losses = []
     val_auxes = []
+    lr_history = []
     epoch_rates = []
     best_val_epoch = -1
+
+    init_key, rng_key = jr.split(rng_key, 2)
+    init_batch = next(iter(valloader))
+    if len(init_batch) == 2:
+        x, y = init_batch
+    else:
+        x, y, _ = init_batch
+    x = x.numpy()
+    y = y.numpy()
+    y[np.isnan(y)] = -9999.0
+    val_loss, state, aux = make_eval_step(model, state, x, y, init_key)
 
     for epoch in range(epochs):
         t0 = time.time()
@@ -122,7 +154,7 @@ def train(
             y[np.isnan(y)] = -9999.0
 
             model, state, opt_state, train_loss, aux = make_train_step(
-                model, state, opt_state, x, y, batch_key
+                model, state, opt_state, lr_reducer_state, val_loss, x, y, batch_key
             )
             batch_losses.append(train_loss)
             batch_auxes.append(aux)
@@ -134,6 +166,9 @@ def train(
 
         epoch_train_aux = np.mean(np.asarray(batch_auxes), axis=0)
         train_auxes.append(epoch_train_aux)
+
+        lr_scale, _, _, _ = lr_reducer_state
+        lr_history.append(lr_scale)
 
         epoch_rate = 60**2 / (t1 - t0)
         epoch_rates.append(epoch_rate)
@@ -159,21 +194,28 @@ def train(
                 val_loss.append(loss)
                 val_aux.append(aux)
 
-            val_loss = np.mean(np.asarray(val_loss), axis=0)
+            val_loss = jnp.mean(jnp.asarray(val_loss), axis=0)
             val_losses.append(val_loss)
             val_aux = np.mean(np.asarray(val_aux), axis=0)
             val_auxes.append(val_aux)
 
+            _, lr_reducer_state = lr_reducer.update(
+                updates=eqx.filter(model, eqx.is_array),
+                state=lr_reducer_state,
+                loss=val_loss,
+            )
+
             print(
-                f"Epoch {epoch + 1} | "
+                f"Epoch {epoch} | "
                 f"Train Total Loss: {epoch_train_loss:.3f} | "
                 f"Val Total Loss: {val_loss:.3f} | "
-                f"Train Unsupervised Loss: {epoch_train_aux[0]:.3f} | "
-                f"Train Supervised Loss: {epoch_train_aux[1]:.3f} | "
-                f"Train Target Loss: {epoch_train_aux[2]:.3f} | "
-                f"Val Unsupervised Loss: {val_aux[0]:.3f} | "
-                f"Val Supervised Loss: {val_aux[1]:.3f} | "
-                f"Val Target Loss: {val_aux[2]:.3f} | "
+                f"Train U-Loss: {epoch_train_aux[0]:.3f} | "
+                f"Train S-Loss: {epoch_train_aux[1]:.3f} | "
+                f"Train T-Loss: {epoch_train_aux[2]:.3f} | "
+                f"Val U-Loss: {val_aux[0]:.3f} | "
+                f"Val S-Loss: {val_aux[1]:.3f} | "
+                f"Val T-Loss: {val_aux[2]:.3f} | "
+                f"LR Scale: {np.log10(lr_scale):.1f} | "
                 f"Epoch Rate: {np.mean(epoch_rates):.2f} epochs/hr"
             )
 
@@ -183,47 +225,36 @@ def train(
                     save(f"{checkpoint_dir}/best_model.pkl", model)
 
         if early_stopping and epoch - best_val_epoch > early_stopping_patience:
-            print(f"\nEarly stopping after {epoch} epochs")
-            print(
-                f"Best Epoch: {best_val_epoch + 1} | "
-                f"Best Train Loss: {train_losses[best_val_epoch]:.3f} | "
-                f"Best Val Loss: {val_losses[best_val_epoch]:.3f} | "
-                f"Best Train Unsupervised Loss: {train_auxes[best_val_epoch][0]:.3f} | "
-                f"Best Train Supervised Loss: {train_auxes[best_val_epoch][1]:.3f} | "
-                f"Best Train Target Loss: {train_auxes[best_val_epoch][2]:.3f} | "
-                f"Best Val Unsupervised Loss: {val_auxes[best_val_epoch][0]:.3f} | "
-                f"Best Val Supervised Loss: {val_auxes[best_val_epoch][1]:.3f} | "
-                f"Best Val Target Loss: {val_auxes[best_val_epoch][2]:.3f}"
-            )
-
-            if checkpoint_dir is not None:
-                print(f"Saving final model to {checkpoint_dir}/final_model.pkl")
-                save(f"{checkpoint_dir}/final_model.pkl", model)
-                print(f"Setting model to best model from epoch {best_val_epoch + 1}")
-                model = load(f"{checkpoint_dir}/best_model.pkl", model)
-
+            print(f"\nEarly stopping after {epoch} epochs\n")
             break
 
     if checkpoint_dir is not None:
 
-        print(
-            f"Training complete, saving final model to {checkpoint_dir}/final_model.pkl"
-        )
+        print(f"\nSaving final model to {checkpoint_dir}/final_model.pkl\n")
         save(f"{checkpoint_dir}/final_model.pkl", model)
 
         print(
-            f"Best Epoch: {best_val_epoch + 1} | "
+            f"\nBest Epoch: {best_val_epoch} | "
             f"Best Train Loss: {train_losses[best_val_epoch]:.3f} | "
             f"Best Val Loss: {val_losses[best_val_epoch]:.3f} | "
-            f"Best Train Unsupervised Loss: {train_auxes[best_val_epoch][0]:.3f} | "
-            f"Best Train Supervised Loss: {train_auxes[best_val_epoch][1]:.3f} | "
-            f"Best Train Target Loss: {train_auxes[best_val_epoch][2]:.3f} | "
-            f"Best Val Unsupervised Loss: {val_auxes[best_val_epoch][0]:.3f} | "
-            f"Best Val Supervised Loss: {val_auxes[best_val_epoch][1]:.3f} | "
-            f"Best Val Target Loss: {val_auxes[best_val_epoch][2]:.3f}"
+            f"Best Train U-Loss: {train_auxes[best_val_epoch][0]:.3f} | "
+            f"Best Train S-Loss: {train_auxes[best_val_epoch][1]:.3f} | "
+            f"Best Train T-Loss: {train_auxes[best_val_epoch][2]:.3f} | "
+            f"Best Val U-Loss: {val_auxes[best_val_epoch][0]:.3f} | "
+            f"Best Val S-Loss: {val_auxes[best_val_epoch][1]:.3f} | "
+            f"Best Val T-Loss: {val_auxes[best_val_epoch][2]:.3f}"
         )
-        print(f"Setting model to best model from epoch {best_val_epoch + 1}")
+        print(f"\nSetting model to best model from epoch {best_val_epoch}\n")
 
         model = load(f"{checkpoint_dir}/best_model.pkl", model)
 
-    return model, state, train_losses, val_losses, train_auxes, val_auxes
+    return (
+        model,
+        state,
+        train_losses,
+        val_losses,
+        train_auxes,
+        val_auxes,
+        lr_history,
+        epoch,
+    )
