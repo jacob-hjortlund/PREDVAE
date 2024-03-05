@@ -101,7 +101,7 @@ def train(
         iterable_trainloader = iter(trainloader)
         iterable_testloader = iter(testloader)
 
-        for _ in prog_table(train_batches_per_epoch):
+        for _ in range(train_batches_per_epoch):
 
             batch_key, rng_key = jr.split(rng_key, 2)
 
