@@ -4,7 +4,8 @@ import jax.random as jr
 from jax.typing import ArrayLike
 from collections.abc import Callable
 
-from .datasets import PhotometryStatistics
+from .datasets import DatasetStatistics, SpectroPhotometricStatistics
+from typing import Union
 
 
 def calculate_colors(photometry: ArrayLike) -> ArrayLike:
@@ -48,7 +49,7 @@ def resample(
 
 def post_process_batch(
     batch: tuple,
-    dataset_statistics: PhotometryStatistics,
+    dataset_statistics: Union[DatasetStatistics, SpectroPhotometricStatistics],
     resample_fn: Callable,
     rng_key: ArrayLike,
 ):

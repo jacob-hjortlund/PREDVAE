@@ -1,17 +1,9 @@
-import h5py
-import torch
-
-import numpy as np
-import pandas as pd
 import equinox as eqx
 import jax.numpy as jnp
-
 from jaxtyping import Array
-from torch.utils.data import Dataset, Sampler
-from sklearn.model_selection import StratifiedKFold
 
 
-class PhotometryDataset(eqx.Module):
+class SpectroPhotometricDataset(eqx.Module):
 
     psf_photometry: Array
     psf_uncertainties: Array
@@ -53,7 +45,7 @@ class PhotometryDataset(eqx.Module):
         self.log10_redshift = (
             log10_redshift
             if log10_redshift is not None
-            else jnp.zeros(len(psf_photometry, 1))
+            else jnp.ones((len(psf_photometry), 1)) * jnp.inf
         )
         self.objid = objid if objid is not None else jnp.zeros(len(psf_photometry))
 
@@ -86,7 +78,7 @@ class PhotometryDataset(eqx.Module):
         )
 
 
-class PhotometryStatistics(eqx.Module):
+class SpectroPhotometricStatistics(eqx.Module):
 
     psf_photometry_mean: Array
     psf_photometry_std: Array
@@ -103,7 +95,69 @@ class PhotometryStatistics(eqx.Module):
 
     def __init__(
         self,
-        photometry_dataset: PhotometryDataset,
+        photometric_dataset: SpectroPhotometricDataset,
+        spectroscopic_dataset: SpectroPhotometricDataset,
+    ):
+        psf_photometry = jnp.concatenate(
+            [photometric_dataset.psf_photometry, spectroscopic_dataset.psf_photometry],
+            axis=0,
+        )
+        psf_colors = self._calculate_colors(psf_photometry)
+        self.psf_photometry_mean = jnp.mean(psf_photometry, axis=0)
+        self.psf_photometry_std = jnp.std(psf_photometry, axis=0)
+        self.psf_colors_mean = jnp.mean(psf_colors, axis=0)
+        self.psf_colors_std = jnp.std(psf_colors, axis=0)
+
+        model_photometry = jnp.concatenate(
+            [
+                photometric_dataset.model_photometry,
+                spectroscopic_dataset.model_photometry,
+            ],
+            axis=0,
+        )
+        model_colors = self._calculate_colors(model_photometry)
+        self.model_photometry_mean = jnp.mean(model_photometry, axis=0)
+        self.model_photometry_std = jnp.std(model_photometry, axis=0)
+        self.model_colors_mean = jnp.mean(model_colors, axis=0)
+        self.model_colors_std = jnp.std(model_colors, axis=0)
+
+        additional_features = jnp.concatenate(
+            [
+                photometric_dataset.additional_features,
+                spectroscopic_dataset.additional_features,
+            ],
+            axis=0,
+        )
+        self.additional_features_mean = jnp.mean(additional_features, axis=0)
+        self.additional_features_std = jnp.std(additional_features, axis=0)
+
+        self.log10_redshift_mean = jnp.mean(
+            spectroscopic_dataset.log10_redshift, axis=0
+        )
+        self.log10_redshift_std = jnp.std(spectroscopic_dataset.log10_redshift, axis=0)
+
+    def _calculate_colors(self, photometry: Array) -> Array:
+        return photometry[..., 1:] - photometry[..., :-1]
+
+
+class DatasetStatistics(eqx.Module):
+
+    psf_photometry_mean: Array
+    psf_photometry_std: Array
+    psf_colors_mean: Array
+    psf_colors_std: Array
+    model_photometry_mean: Array
+    model_photometry_std: Array
+    model_colors_mean: Array
+    model_colors_std: Array
+    additional_features_mean: Array
+    additional_features_std: Array
+    log10_redshift_mean: Array
+    log10_redshift_std: Array
+
+    def __init__(
+        self,
+        photometry_dataset: SpectroPhotometricDataset,
     ):
         psf_colors = self._calculate_colors(photometry_dataset.psf_photometry)
         self.psf_photometry_mean = jnp.mean(photometry_dataset.psf_photometry, axis=0)

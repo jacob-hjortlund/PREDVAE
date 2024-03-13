@@ -8,20 +8,6 @@ from collections.abc import Callable
 from jaxtyping import Array, PRNGKeyArray
 
 
-def make_vectorized_dataloader(
-    dataset: eqx.Module,
-    batch_size: int,
-    shuffle: bool = False,
-    drop_last: bool = False,
-):
-
-    dataloader, state = eqx.filter_vmap(
-        eqx.nn.make_with_state(DataLoader), in_axes=(eqx.if_array(0), None, None, None)
-    )(dataset, batch_size, shuffle, drop_last)
-
-    return dataloader, state
-
-
 class DataLoader(eqx.Module):
     dataset: eqx.Module
     batch_size: int = eqx.field(static=True)
