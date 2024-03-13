@@ -156,7 +156,7 @@ def _sample_loss(
     x: ArrayLike,
     y: ArrayLike,
     rng_key: ArrayLike,
-    missing_target_value: ArrayLike = -1,
+    missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
 ):
 
@@ -183,9 +183,9 @@ def _sample_loss(
     )
 
     dynamic_loss = cond(
-        y == missing_target_value,
-        lambda *_: dynamic_unsupervised_loss,
+        y != missing_target_value,
         lambda *_: dynamic_supervised_loss,
+        lambda *_: dynamic_unsupervised_loss,
     )
 
     loss_components = eqx.combine(dynamic_loss, static_loss)
