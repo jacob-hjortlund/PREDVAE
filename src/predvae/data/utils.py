@@ -117,6 +117,7 @@ def make_spectrophotometric_iterator(
 
         x = jnp.concatenate([x_photometric, x_spectroscopic], axis=0)
         y = jnp.concatenate([y_photometric, y_spectroscopic], axis=0)
+        y = jnp.squeeze(y)
         reset_condition = jnp.logical_and(
             photometric_reset_condition, spectroscopic_reset_condition
         )

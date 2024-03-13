@@ -4,6 +4,7 @@ import jax.random as jr
 from jax.typing import ArrayLike
 from collections.abc import Callable
 
+from jax.lax import cond
 from .datasets import DatasetStatistics, SpectroPhotometricStatistics
 from typing import Union
 
@@ -52,6 +53,7 @@ def post_process_batch(
     dataset_statistics: Union[DatasetStatistics, SpectroPhotometricStatistics],
     resample_fn: Callable,
     rng_key: ArrayLike,
+    normalize_redshift: bool = True,
 ):
 
     (
@@ -107,6 +109,7 @@ def post_process_batch(
         dataset_statistics.log10_redshift_mean,
         dataset_statistics.log10_redshift_std,
     )
+    log10_redshifts = jnp.nan_to_num(log10_redshifts, nan=-9999.0)
 
     x = jnp.column_stack(
         [

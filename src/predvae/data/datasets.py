@@ -45,7 +45,7 @@ class SpectroPhotometricDataset(eqx.Module):
         self.log10_redshift = (
             log10_redshift
             if log10_redshift is not None
-            else jnp.ones((len(psf_photometry), 1)) * jnp.inf
+            else jnp.ones((len(psf_photometry), 1)) * jnp.nan
         )
         self.objid = objid if objid is not None else jnp.zeros(len(psf_photometry))
 
