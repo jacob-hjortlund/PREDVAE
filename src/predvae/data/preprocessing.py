@@ -1,7 +1,10 @@
 import torch
 import numpy as np
+import jax.numpy as jnp
+import jax.random as jr
 
 from typing import Union
+from jaxtyping import Array
 from torch.utils.data import sampler, DataLoader, Dataset
 
 
