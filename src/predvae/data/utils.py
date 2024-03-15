@@ -1,3 +1,4 @@
+import pandas as pd
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
@@ -8,6 +9,67 @@ from collections.abc import Callable
 from .postprocessing import post_process_batch, resample
 from .dataloader import DataLoader
 from .datasets import SpectroPhotometricDataset
+
+
+def create_input_arrays(
+    input_df: pd.DataFrame,
+    psf_columns: list,
+    psf_err_columns: list,
+    model_columns: list,
+    model_err_columns: list,
+    objid_column: list,
+    additional_columns: list = None,
+    z_column: list = None,
+    n_splits: int = 1,
+    shuffle: bool = True,
+    default_value: float = -9999.0,
+):
+
+    if shuffle:
+        input_df = input_df.sample(frac=1).reset_index(drop=True)
+
+    psf_photometry = jnp.asarray(input_df[psf_columns].values)
+    psf_photometry_err = jnp.asarray(input_df[psf_err_columns].values)
+    model_photometry = jnp.asarray(input_df[model_columns].values)
+    model_photometry_err = jnp.asarray(input_df[model_err_columns].values)
+    objid = jnp.asarray(input_df[objid_column].values, dtype=jnp.int64)
+
+    if additional_columns is not None:
+        additional_info = jnp.asarray(input_df[additional_columns].values)
+    else:
+        additional_info = jnp.zeros((psf_photometry.shape[0], 0))
+
+    if z_column is not None:
+        z = jnp.asarray(input_df[z_column].values)
+    else:
+        z = jnp.ones((psf_photometry.shape[0], 1)) * default_value
+
+    if n_splits > 1:
+        psf_photometry = psf_photometry.reshape(n_splits, -1, psf_photometry.shape[-1])
+        psf_photometry_err = psf_photometry_err.reshape(
+            n_splits, -1, psf_photometry_err.shape[-1]
+        )
+        model_photometry = model_photometry.reshape(
+            n_splits, -1, model_photometry.shape[-1]
+        )
+        model_photometry_err = model_photometry_err.reshape(
+            n_splits, -1, model_photometry_err.shape[-1]
+        )
+        additional_info = additional_info.reshape(
+            n_splits, -1, additional_info.shape[-1]
+        )
+        z = z.reshape(n_splits, -1, z.shape[-1])
+        objid = objid.reshape(n_splits, -1, objid.shape[-1])
+
+    return (
+        psf_photometry,
+        psf_photometry_err,
+        model_photometry,
+        model_photometry_err,
+        additional_info,
+        z,
+        objid,
+    )
 
 
 def make_vectorized_dataloader(
@@ -118,16 +180,14 @@ def make_spectrophotometric_iterator(
         x = jnp.concatenate([x_photometric, x_spectroscopic], axis=0)
         y = jnp.concatenate([y_photometric, y_spectroscopic], axis=0)
         y = jnp.squeeze(y)
-        reset_condition = jnp.logical_and(
-            photometric_reset_condition, spectroscopic_reset_condition
-        )
 
         return (
             x,
             y,
             photometric_dataloader_state,
             spectroscopic_dataloader_state,
-            reset_condition,
+            photometric_reset_condition,
+            spectroscopic_reset_condition,
         )
 
     if vectorize:
