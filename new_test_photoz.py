@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 # xla_flags = os.getenv("XLA_FLAGS", "")
 # xla_flags = re.sub(r"--xla_force_host_platform_device_count=\S+", "", xla_flags).split()
@@ -28,6 +29,7 @@ from umap import UMAP
 from pathlib import Path
 from functools import partial
 from jax.tree_util import tree_map
+from optax import contrib as optax_contrib
 
 # Model Config
 
@@ -56,11 +58,10 @@ REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
 
-SPLIT = 0
+N_SPLITS = 2
 SHUFFLE = True
 DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
-SPEC_REDUCTION_FACTOR = 10
 DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/")
 SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
 
@@ -73,8 +74,9 @@ z_column = ["z"]
 objid_column = ["objid"]
 
 SAVE_DIR.mkdir(exist_ok=True)
-
+VECTORIZE = True if N_SPLITS > 1 else False
 RNG_KEY = jax.random.PRNGKey(SEED)
+
 
 print(
     "\n--------------------------------- LOADING DATA ---------------------------------\n"
@@ -85,26 +87,79 @@ spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_xmatch.csv")
 n_spec = spec_df.shape[0]
 photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", nrows=n_spec)
 
-spec_psf_photometry = jnp.asarray(spec_df[psf_columns].values)
-spec_psf_photometry_err = jnp.asarray(spec_df[psf_err_columns].values)
-spec_model_photometry = jnp.asarray(spec_df[model_columns].values)
-spec_model_photometry_err = jnp.asarray(spec_df[model_err_columns].values)
-spec_additional_info = jnp.log10(jnp.asarray(spec_df[additional_columns].values))
-spec_z = jnp.log10(jnp.asarray(spec_df[z_column].values))
-spec_objid = jnp.asarray(spec_df[objid_column].values, dtype=jnp.int64)
+(
+    spec_psf_photometry,
+    spec_psf_photometry_err,
+    spec_model_photometry,
+    spec_model_photometry_err,
+    spec_additional_info,
+    spec_z,
+    spec_objid,
+) = data.create_input_arrays(
+    input_df=spec_df,
+    psf_columns=psf_columns,
+    psf_err_columns=psf_err_columns,
+    model_columns=model_columns,
+    model_err_columns=model_err_columns,
+    additional_columns=additional_columns,
+    z_column=z_column,
+    objid_column=objid_column,
+    n_splits=N_SPLITS,
+    shuffle=SHUFFLE,
+)
+spec_additional_info = jnp.log10(spec_additional_info)
+spec_z = jnp.log10(spec_z)
 
-photo_psf_photometry = jnp.asarray(photo_df[psf_columns].values)
-photo_psf_photometry_err = jnp.asarray(photo_df[psf_err_columns].values)
-photo_model_photometry = jnp.asarray(photo_df[model_columns].values)
-photo_model_photometry_err = jnp.asarray(photo_df[model_err_columns].values)
-photo_additional_info = jnp.log10(jnp.asarray(photo_df[additional_columns].values))
-photo_objid = jnp.asarray(photo_df[objid_column].values, dtype=jnp.int64)
+(
+    photo_psf_photometry,
+    photo_psf_photometry_err,
+    photo_model_photometry,
+    photo_model_photometry_err,
+    photo_additional_info,
+    _,
+    photo_objid,
+) = data.create_input_arrays(
+    input_df=photo_df,
+    psf_columns=psf_columns,
+    psf_err_columns=psf_err_columns,
+    model_columns=model_columns,
+    model_err_columns=model_err_columns,
+    additional_columns=additional_columns,
+    z_column=None,
+    objid_column=objid_column,
+    n_splits=N_SPLITS,
+    shuffle=SHUFFLE,
+)
+photo_additional_info = jnp.log10(photo_additional_info)
+
+n_spec = spec_df.shape[0] / N_SPLITS
+n_photo = photo_df.shape[0] / N_SPLITS
+spec_ratio = n_spec / (n_spec + n_photo)
+
+PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
+SPECTROSCOPIC_BATCH_SIZE = BATCH_SIZE - PHOTOMETRIC_BATCH_SIZE
+batch_size_ratio = SPECTROSCOPIC_BATCH_SIZE / (
+    SPECTROSCOPIC_BATCH_SIZE + PHOTOMETRIC_BATCH_SIZE
+)
+expected_no_of_spec_batches = n_spec // SPECTROSCOPIC_BATCH_SIZE
+expected_no_of_photo_batches = n_photo // PHOTOMETRIC_BATCH_SIZE
+photo_larger = expected_no_of_photo_batches > expected_no_of_spec_batches
+
+print(f"N Spec: {n_spec}")
+print(f"N Photo: {n_photo}")
+print(f"Spec Ratio: {spec_ratio}")
+print(f"Batch Size: {BATCH_SIZE}")
+print(f"Photometric Batch Size: {PHOTOMETRIC_BATCH_SIZE}")
+print(f"Spectroscopic Batch Size: {SPECTROSCOPIC_BATCH_SIZE}")
+print(f"Batch Size Ratio: {batch_size_ratio}")
+print(f"Expected No of Spec Batches: {expected_no_of_spec_batches}")
+print(f"Expected No of Photo Batches: {expected_no_of_photo_batches}")
 
 ###################################################################################
 #################### SPECTROPHOTOMETRIC DATASET AND STATISTICS ####################
 ###################################################################################
 
-spec_dataset = data.SpectroPhotometricDataset(
+train_spec_dataset = eqx.filter_vmap(data.SpectroPhotometricDataset)(
     spec_psf_photometry,
     spec_psf_photometry_err,
     spec_model_photometry,
@@ -114,138 +169,191 @@ spec_dataset = data.SpectroPhotometricDataset(
     spec_objid,
 )
 
-photo_dataset = data.SpectroPhotometricDataset(
+train_photo_dataset = eqx.filter_vmap(
+    data.SpectroPhotometricDataset,
+    in_axes=(
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        None,
+        eqx.if_array(0),
+    ),
+)(
     photo_psf_photometry,
     photo_psf_photometry_err,
     photo_model_photometry,
     photo_model_photometry_err,
     photo_additional_info,
-    log10_redshift=None,
-    objid=photo_objid,
+    None,
+    photo_objid,
 )
 
-dataset_statistics = data.SpectroPhotometricStatistics(
-    photometric_dataset=photo_dataset, spectroscopic_dataset=spec_dataset
+train_dataset_statistics = eqx.filter_vmap(data.SpectroPhotometricStatistics)(
+    train_photo_dataset, train_spec_dataset
+)
+
+val_spec_dataset = eqx.filter_vmap(data.SpectroPhotometricDataset)(
+    jnp.roll(spec_psf_photometry, 1, axis=0),
+    jnp.roll(spec_psf_photometry_err, 1, axis=0),
+    jnp.roll(spec_model_photometry, 1, axis=0),
+    jnp.roll(spec_model_photometry_err, 1, axis=0),
+    jnp.roll(spec_additional_info, 1, axis=0),
+    jnp.roll(spec_z, 1, axis=0),
+    jnp.roll(spec_objid, 1, axis=0),
+)
+
+val_photo_dataset = eqx.filter_vmap(
+    data.SpectroPhotometricDataset,
+    in_axes=(
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+        None,
+        eqx.if_array(0),
+    ),
+)(
+    jnp.roll(photo_psf_photometry, 1, axis=0),
+    jnp.roll(photo_psf_photometry_err, 1, axis=0),
+    jnp.roll(photo_model_photometry, 1, axis=0),
+    jnp.roll(photo_model_photometry_err, 1, axis=0),
+    jnp.roll(photo_additional_info, 1, axis=0),
+    None,
+    jnp.roll(photo_objid, 1, axis=0),
+)
+
+val_dataset_statistics = eqx.filter_vmap(data.SpectroPhotometricStatistics)(
+    val_photo_dataset, val_spec_dataset
 )
 
 ###################################################################################
 ################################# DATALOADERS #####################################
 ###################################################################################
 
-photo_dl_key, spec_dl_key, RNG_KEY = jr.split(RNG_KEY, 3)
+keys = jr.split(RNG_KEY, (N_SPLITS + 1))
+train_dataloader_keys, RNG_KEY = keys[:-1], keys[-1]
+
 (
     train_photometric_dataloader,
     train_photometric_dataloader_state,
-) = eqx.nn.make_with_state(data.DataLoader)(
-    photo_dataset,
-    batch_size=BATCH_SIZE,
+) = data.make_vectorized_dataloader(
+    train_photo_dataset,
+    batch_size=PHOTOMETRIC_BATCH_SIZE,
+    rng_key=train_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
-    rng_key=photo_dl_key,
 )
 
 (
     train_spectroscopic_dataloader,
     train_spectroscopic_dataloader_state,
-) = eqx.nn.make_with_state(data.DataLoader)(
-    spec_dataset,
-    batch_size=BATCH_SIZE,
+) = data.make_vectorized_dataloader(
+    train_spec_dataset,
+    batch_size=SPECTROSCOPIC_BATCH_SIZE,
+    rng_key=train_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
-    rng_key=spec_dl_key,
 )
 
 train_iterator = data.make_spectrophotometric_iterator(
     train_photometric_dataloader,
     train_spectroscopic_dataloader,
-    dataset_statistics,
+    train_dataset_statistics,
     resample_photometry=True,
-    vectorize=False,
+    vectorize=VECTORIZE,
 )
 
-photo_dl_key, spec_dl_key, RNG_KEY = jr.split(RNG_KEY, 3)
-val_photometric_dataloader, val_photometric_dataloader_state = eqx.nn.make_with_state(
-    data.DataLoader
-)(
-    photo_dataset,
+keys = jr.split(RNG_KEY, (N_SPLITS + 1))
+val_dataloader_keys, RNG_KEY = keys[:-1], keys[-1]
+
+(
+    val_photometric_dataloader,
+    val_photometric_dataloader_state,
+) = data.make_vectorized_dataloader(
+    val_photo_dataset,
     batch_size=BATCH_SIZE,
+    rng_key=val_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
-    rng_key=photo_dl_key,
 )
 
 (
     val_spectroscopic_dataloader,
     val_spectroscopic_dataloader_state,
-) = eqx.nn.make_with_state(data.DataLoader)(
-    spec_dataset,
+) = data.make_vectorized_dataloader(
+    val_spec_dataset,
     batch_size=BATCH_SIZE,
+    rng_key=val_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
-    rng_key=spec_dl_key,
 )
 
-eval_iterator = data.make_spectrophotometric_iterator(
+val_iterator = data.make_spectrophotometric_iterator(
     val_photometric_dataloader,
     val_spectroscopic_dataloader,
-    dataset_statistics,
+    val_dataset_statistics,
     resample_photometry=True,
-    vectorize=False,
+    vectorize=VECTORIZE,
 )
 
 ###################################################################################
 ################################### MODEL #########################################
 ###################################################################################
 
-predictor_key, encoder_key, decoder_key, RNG_KEY = jax.random.split(RNG_KEY, 4)
+keys = jr.split(RNG_KEY, (4, N_SPLITS))
+predictor_key, encoder_key, decoder_key = keys[:3]
+RNG_KEY = keys[3][0]
 
-predictor = nn.GaussianCoder(
-    input_size=INPUT_SIZE,
-    output_size=PREDICTOR_SIZE,
-    depth=3,
-    width=[2048, 1024, 512],
-    activation=jax.nn.tanh,
-    use_spectral_norm=USE_SPEC_NORM,
-    key=predictor_key,
+GaussianCoder = eqx.filter_vmap(
+    nn.GaussianCoder, in_axes=(None, None, None, None, None, eqx.if_array(0), None)
+)
+Gaussian = eqx.filter_vmap(nn.Gaussian)
+SSVAE = eqx.filter_vmap(eqx.nn.make_with_state(nn.SSVAE))
+
+predictor = GaussianCoder(
+    INPUT_SIZE,
+    PREDICTOR_SIZE,
+    [2048, 1024, 512],
+    3,
+    jax.nn.tanh,
+    predictor_key,
+    USE_SPEC_NORM,
 )
 
-encoder = nn.GaussianCoder(
-    input_size=INPUT_SIZE + PREDICTOR_SIZE,
-    output_size=LATENT_SIZE,
-    depth=3,
-    width=[2048, 1024, 512],
-    activation=jax.nn.tanh,
-    use_spectral_norm=USE_SPEC_NORM,
-    key=encoder_key,
+encoder = GaussianCoder(
+    INPUT_SIZE + PREDICTOR_SIZE,
+    LATENT_SIZE,
+    [2048, 1024, 512],
+    3,
+    jax.nn.tanh,
+    encoder_key,
+    USE_SPEC_NORM,
 )
 
-decoder = nn.GaussianCoder(
-    input_size=LATENT_SIZE + PREDICTOR_SIZE,
-    output_size=INPUT_SIZE,
-    depth=3,
-    width=[2048, 1024, 512],
-    activation=jax.nn.tanh,
-    use_spectral_norm=USE_SPEC_NORM,
-    key=decoder_key,
+decoder = GaussianCoder(
+    LATENT_SIZE + PREDICTOR_SIZE,
+    INPUT_SIZE,
+    [2048, 1024, 512],
+    3,
+    jax.nn.tanh,
+    decoder_key,
+    USE_SPEC_NORM,
 )
 
 latent_prior = nn.Gaussian(
-    mu=jnp.zeros(LATENT_SIZE),
-    log_sigma=jnp.zeros(LATENT_SIZE),
+    mu=jnp.zeros((N_SPLITS, LATENT_SIZE)),
+    log_sigma=jnp.zeros((N_SPLITS, LATENT_SIZE)),
 )
 
 target_prior = nn.Gaussian(
-    mu=jnp.zeros(PREDICTOR_SIZE),
-    log_sigma=jnp.zeros(PREDICTOR_SIZE),
+    mu=jnp.zeros((N_SPLITS, PREDICTOR_SIZE)),
+    log_sigma=jnp.zeros((N_SPLITS, PREDICTOR_SIZE)),
 )
 
-ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(
-    predictor=predictor,
-    encoder=encoder,
-    decoder=decoder,
-    latent_prior=latent_prior,
-    target_prior=target_prior,
-)
+ssvae, input_state = SSVAE(encoder, decoder, predictor, latent_prior, target_prior)
 
 filter_spec = tree_map(lambda _: True, ssvae)
 filter_spec = eqx.tree_at(
@@ -259,61 +367,70 @@ filter_spec = eqx.tree_at(
 ###################################################################################
 
 optimizer = optax.adam(LEARNING_RATE)
+optimizer_state = eqx.filter_vmap(optimizer.init)(eqx.filter(ssvae, eqx.is_array))
 
 loss_kwargs = {"alpha": 1.0, "missing_target_value": MISSING_TARGET_VALUE}
 loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
-optimizer, optimizer_state, lr_reducer, lr_reducer_state = (
-    training.initialize_optimizer(
-        model=ssvae,
-        optimizer=optimizer,
-        reduce_lr_on_plateau=False,
-        lr_reduction_kwargs={},
-    )
-)
-
 train_step = training.make_train_step(
     optimizer=optimizer,
-    lr_reducer=lr_reducer,
     loss_fn=loss_fn,
     filter_spec=filter_spec,
-    vectorize=False,
+    vectorize=VECTORIZE,
 )
-eval_step = training.make_eval_step(
+val_step = training.make_eval_step(
     loss_fn=loss_fn,
     filter_spec=filter_spec,
-    vectorize=False,
+    vectorize=VECTORIZE,
 )
 
 train_step = eqx.filter_jit(train_step)
-eval_step = eqx.filter_jit(eval_step)
+val_step = eqx.filter_jit(val_step)
 train_iterator = eqx.filter_jit(train_iterator)
-eval_iterator = eqx.filter_jit(eval_iterator)
+val_iterator = eqx.filter_jit(val_iterator)
 
-train_batches = 0
 end_of_train_split = False
 end_of_val_split = False
-val_loss = jnp.inf
 
-expected_no_batches = len(photo_dataset) - len(photo_dataset) % BATCH_SIZE
-print(f"Expected number of batches: {expected_no_batches} per epoch")
+val_step_time = 0
+train_step_time = 0
+epoch_time = 0
 
+train_loss = []
+train_aux = []
+val_loss = []
+val_aux = []
+
+t0 = time.time()
 
 for epoch in range(EPOCHS):
 
     print(f"\nEpoch {epoch} / {EPOCHS}\n")
 
+    train_batches = 0
+    val_batches = 0
+    train_loss_value_sum = jnp.zeros((N_SPLITS,))
+    train_aux_sum = jnp.zeros((N_SPLITS, 3))
+    val_loss_value_sum = jnp.zeros((N_SPLITS,))
+    val_aux_sum = jnp.zeros((N_SPLITS, 3))
+
+    t0_epoch = time.time()
+
     epoch_train_key, epoch_val_key, RNG_KEY = jr.split(RNG_KEY, 3)
 
     while not end_of_train_split:
 
-        resampling_key, step_key, epoch_train_key = jr.split(epoch_train_key, 3)
+        keys = jr.split(epoch_train_key, (3, N_SPLITS))
+        resampling_key, step_key = keys[:2]
+        epoch_train_key = keys[2][0]
+
         (
             x,
             y,
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
-            reset_condition,
+            photometric_reset_condition,
+            spectroscopic_reset_condition,
         ) = train_iterator(
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
@@ -327,37 +444,85 @@ for epoch in range(EPOCHS):
             ssvae,
             input_state,
             optimizer_state,
-            lr_reducer_state,
-            val_loss,
         )
+        train_loss_value = jnp.nansum(jnp.array([train_loss_value, loss_value]), axis=0)
+        train_aux = jnp.nansum(jnp.array([train_aux, aux]), axis=0)
 
         train_batches += 1
         print(
-            f"Train Batch {train_batches/expected_no_batches*100:.2f} - Loss: {loss_value}"
+            f"Train Batch {train_batches} - {train_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {train_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
         )
 
-        end_of_train_split = jnp.all(reset_condition)
+        end_of_train_split = jnp.all(spectroscopic_reset_condition)
 
-    print("End of Train Split")
+    t1 = time.time()
+    train_step_time += t1 - t0_epoch
+    epoch_train_loss = train_loss_value / train_batches
+    epoch_train_aux = train_aux_sum / train_batches
+
+    print(
+        f"\nTrain Batches: {train_batches} - Time {t1-t0_epoch:.2f} s - Epoch Train Loss: {epoch_train_loss}\n"
+    )
     end_of_train_split = False
 
+    t0_val = time.time()
     while not end_of_val_split:
 
-        resampling_key, step_key, epoch_val_key = jr.split(epoch_val_key, 3)
+        keys = jr.split(epoch_val_key, (3, N_SPLITS))
+        resampling_key, step_key = keys[:2]
+        epoch_val_key = keys[2][0]
+
         (
             x,
             y,
-            eval_photometric_dataloader_state,
-            eval_spectroscopic_dataloader_state,
-            reset_condition,
-        ) = eval_iterator(
-            eval_photometric_dataloader_state,
-            eval_spectroscopic_dataloader_state,
+            val_photometric_dataloader_state,
+            val_spectroscopic_dataloader_state,
+            photometric_reset_condition,
+            spectroscopic_reset_condition,
+        ) = val_iterator(
+            val_photometric_dataloader_state,
+            val_spectroscopic_dataloader_state,
             resampling_key,
         )
 
-        loss_value, output_state, aux = eval_step(x, y, step_key, ssvae, input_state)
+        ssvae, input_state, optimizer_state, loss_value, aux = val_step(
+            x,
+            y,
+            step_key,
+            ssvae,
+            input_state,
+            optimizer_state,
+        )
+        val_loss_value = jnp.nansum(jnp.array([val_loss_value, loss_value]), axis=0)
+        val_aux = jnp.nansum(jnp.array([val_aux, aux]), axis=0)
 
-        end_of_val_split = jnp.all(reset_condition)
+        val_batches += 1
+        print(
+            f"val Batch {val_batches} - {val_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {val_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
+        )
 
+        end_of_val_split = jnp.all(spectroscopic_reset_condition)
+
+    t1_val = time.time()
+    val_step_time += t1_val - t0_val
+    epoch_val_loss = val_loss_value / val_batches
+    epoch_val_aux = val_aux_sum / val_batches
+
+    print(
+        f"\nVal Batches: {val_batches} - Time {t1_val-t0_val:.2f} s - Epoch Val Loss: {epoch_val_loss}\n"
+    )
     end_of_val_split = False
+    epoch_time += time.time() - t0_epoch
+    train_loss.append(epoch_train_loss)
+    train_aux.append(epoch_train_aux)
+    val_loss.append(epoch_val_loss)
+    val_aux.append(epoch_val_aux)
+
+val_step_time = val_step_time / EPOCHS
+train_step_time = train_step_time / EPOCHS
+epoch_time = epoch_time / EPOCHS
+train_time = time.time() - t0
+
+print(
+    f"\nTrain Time: {train_time:.2f} s - Train Step Time: {train_step_time:.2f} s - Val Step Time: {val_step_time:.2f} s - Epoch Time: {epoch_time:.2f} s"
+)
