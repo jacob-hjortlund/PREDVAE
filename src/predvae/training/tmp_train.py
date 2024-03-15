@@ -29,7 +29,6 @@ def load(filename, model):
 
 def make_train_step(
     optimizer: optax.GradientTransformation,
-    lr_reducer: optax.GradientTransformation,
     loss_fn: Callable,
     filter_spec: eqx.Module,
     vectorize: bool = False,
@@ -42,8 +41,6 @@ def make_train_step(
         model: eqx.Module,
         input_state: eqx.nn.State,
         optimizer_state: PyTree,
-        lr_reducer_state: PyTree,
-        val_loss: ArrayLike,
     ):
 
         free_params, frozen_params = eqx.partition(model, filter_spec)
@@ -53,9 +50,6 @@ def make_train_step(
         )(free_params, frozen_params, input_state, x, y, rng_key)
 
         updates, optimizer_state = optimizer.update(grads, optimizer_state, model)
-        updates, _ = lr_reducer.update(
-            updates=updates, state=lr_reducer_state, loss=val_loss
-        )
         model = eqx.apply_updates(model, updates)
 
         return model, output_state, optimizer_state, loss_value, aux
@@ -93,20 +87,14 @@ def make_eval_step(
 def initialize_optimizer(
     model: eqx.Module,
     optimizer: optax.GradientTransformation,
-    reduce_lr_on_plateau: bool = False,
-    lr_reduction_kwargs: dict = {},
+    lr_reducer: optax.GradientTransformation,
 ):
 
     filtered_model = eqx.filter(model, eqx.is_array)
-    if not reduce_lr_on_plateau:
-        lr_reduction_kwargs["factor"] = 1.0
-
-    lr_reducer = optax_contrib.reduce_on_plateau(**lr_reduction_kwargs)
     lr_reducer_state = lr_reducer.init(filtered_model)
-
     optimizer_state = optimizer.init(filtered_model)
 
-    return optimizer, optimizer_state, lr_reducer, lr_reducer_state
+    return optimizer_state, lr_reducer_state
 
 
 def train_ssvae(
