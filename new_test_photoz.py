@@ -37,15 +37,15 @@ RUN_NAME = "SSVAE_10"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
-USE_SPEC_NORM = True
+USE_SPEC_NORM = False
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 10
+EPOCHS = 2
 EVAL_EVERY_N = 1
 LEARNING_RATE = 3e-4
-BATCH_SIZE = 1024
+BATCH_SIZE = 512  # 1024
 TRAIN_BATCHES_PER_EPOCH = 1
 VAL_BATCHES_PER_EPOCH = 1
 
@@ -58,12 +58,12 @@ REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
 
-N_SPLITS = 4
+N_SPLITS = 2  # 4
 SHUFFLE = True
 DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
-DATA_DIR = Path("/scratch/project/dd-23-98/Base/")
-SAVE_DIR = Path(f"/home/it4i-josman/PREDVAE/{RUN_NAME}")
+DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/")
+SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
 
 psf_columns = [f"psfmag_{b}" for b in "ugriz"] + ["w1mag", "w2mag"]
 psf_err_columns = [f"psfmagerr_{b}" for b in "ugriz"] + ["w1sigmag", "w2sigmag"]
@@ -82,8 +82,10 @@ print(
     "\n--------------------------------- LOADING DATA ---------------------------------\n"
 )
 
-spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv")
-photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
+spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv", nrows=N_SPLITS * BATCH_SIZE * 2)
+photo_df = pd.read_csv(
+    DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1], nrows=N_SPLITS * BATCH_SIZE * 2
+)
 
 (
     spec_psf_photometry,
@@ -449,9 +451,6 @@ for epoch in range(EPOCHS):
         )
         epoch_train_loss.append(loss_value)
         epoch_train_aux.append(aux)
-        print(
-            f"Train Batch {train_batches} - {train_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {train_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
-        )
 
         train_batches += 1
         end_of_train_split = jnp.all(spectroscopic_reset_condition)
@@ -460,13 +459,11 @@ for epoch in range(EPOCHS):
     train_step_time += t1 - t0_epoch
     epoch_train_loss = jnp.nansum(jnp.array(epoch_train_loss), axis=0) / train_batches
     epoch_train_aux = jnp.nansum(jnp.array(epoch_train_aux), axis=0) / train_batches
-
-    # print(
-    #     f"\nTrain Batches: {train_batches} - Time {t1-t0_epoch:.2f} s - Epoch Train Loss: {epoch_train_loss}\n"
-    # )
     end_of_train_split = False
 
     t0_val = time.time()
+    inference_ssvae = eqx.nn.inference_mode(ssvae)
+
     while not end_of_val_split:
 
         keys = jr.split(epoch_val_key, (3, N_SPLITS))
@@ -490,28 +487,31 @@ for epoch in range(EPOCHS):
             x,
             y,
             step_key,
-            ssvae,
+            inference_ssvae,
             input_state,
         )
         epoch_val_loss.append(loss_value)
         epoch_val_aux.append(aux)
 
-        # print(
-        #     f"val Batch {val_batches} - {val_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {val_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
-        # )
         val_batches += 1
         end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
     t1_val = time.time()
     val_step_time += t1_val - t0_val
     epoch_val_loss = jnp.nansum(jnp.array(epoch_val_loss), axis=0) / val_batches
-    epoch_val_aux = jnp.nansum(jnp.array(epoch_val_loss), axis=0) / val_batches
+    epoch_val_aux = jnp.nansum(jnp.array(epoch_val_aux), axis=0) / val_batches
 
     t1 = time.time()
     epoch_time += t1 - t0_epoch
 
+    mean_epoch_train_loss = jnp.mean(epoch_train_loss)
+    mean_epoch_val_loss = jnp.mean(epoch_val_loss)
+    mean_epoch_train_aux = jnp.mean(epoch_train_aux, axis=0)
+    mean_epoch_val_aux = jnp.mean(epoch_val_aux, axis=0)
     print(
-        f"Epoch: {epoch} - Time: {t1-t0_epoch:.2f} s - Train Loss: {epoch_train_loss} - Val Loss: {epoch_val_loss}"
+        f"Epoch: {epoch} - Time: {t1-t0_epoch:.2f} s - Train Loss: {mean_epoch_train_loss:.3f} - Val Loss: {mean_epoch_val_loss:.3f} - "
+        + f"TU Loss: {mean_epoch_train_aux[0]:.3f} - TS Loss: {mean_epoch_train_aux[1]:.3f} - TT Loss: {mean_epoch_train_aux[2]:.3f} - "
+        + f"VU Loss: {mean_epoch_val_aux[0]:.3f} - VS Loss: {mean_epoch_val_aux[1]:.3f} - VT Loss: {mean_epoch_val_aux[2]:.3f}"
     )
     end_of_val_split = False
     train_loss.append(epoch_train_loss)
@@ -519,7 +519,7 @@ for epoch in range(EPOCHS):
     val_loss.append(epoch_val_loss)
     val_aux.append(epoch_val_aux)
 
-    if len(val_loss) == 1 or jnp.nanmean(epoch_val_loss) < val_loss[epoch]:
+    if len(val_loss) == 1 or mean_epoch_val_loss < jnp.nanmean(val_loss[epoch]):
         best_val_epoch = epoch
         training.save(SAVE_DIR / "best_model.pkl", ssvae)
         train_losses = jnp.asarray(train_loss)
@@ -532,7 +532,7 @@ for epoch in range(EPOCHS):
         np.save(SAVE_DIR / "val_losses.npy", val_losses)
         np.save(SAVE_DIR / "train_auxes.npy", train_auxes)
         np.save(SAVE_DIR / "val_auxes.npy", val_auxes)
-    
+
     if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
         print(f"\nEarly stopping after {epoch} epochs\n")
 
