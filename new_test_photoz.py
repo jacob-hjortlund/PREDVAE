@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_10"
+RUN_NAME = "test"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -45,7 +45,7 @@ SEED = 5678
 EPOCHS = 2
 EVAL_EVERY_N = 1
 LEARNING_RATE = 3e-4
-BATCH_SIZE = 512  # 1024
+BATCH_SIZE = 1024
 TRAIN_BATCHES_PER_EPOCH = 1
 VAL_BATCHES_PER_EPOCH = 1
 
@@ -58,12 +58,12 @@ REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
 
-N_SPLITS = 2  # 4
+N_SPLITS = 4
 SHUFFLE = True
 DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
-DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/")
-SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
+DATA_DIR = Path("/scratch/project/dd-23-98/Base/")
+SAVE_DIR = Path(f"/home/it4i-josman/PREDVAE/{RUN_NAME}")
 
 psf_columns = [f"psfmag_{b}" for b in "ugriz"] + ["w1mag", "w2mag"]
 psf_err_columns = [f"psfmagerr_{b}" for b in "ugriz"] + ["w1sigmag", "w2sigmag"]
@@ -82,9 +82,9 @@ print(
     "\n--------------------------------- LOADING DATA ---------------------------------\n"
 )
 
-spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv", nrows=N_SPLITS * BATCH_SIZE * 2)
+spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv")
 photo_df = pd.read_csv(
-    DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1], nrows=N_SPLITS * BATCH_SIZE * 2
+    DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1]
 )
 
 (
