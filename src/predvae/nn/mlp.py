@@ -3,8 +3,10 @@ from typing import (
     Literal,
     Optional,
     Union,
+    Any,
 )
 
+import jax
 import equinox as eqx
 import jax.nn as jnn
 import jax.numpy as jnp
@@ -13,13 +15,29 @@ import jax.random as jr
 from jax.experimental import checkify
 from jax.scipy import stats as jstats
 from jaxtyping import Array, PRNGKeyArray
+from jax.typing import ArrayLike
 
 _identity = lambda x: x
 
 
+class StatefulIdentity(eqx.Module):
+    layer: eqx.Module
+
+    def __init__(self, layer: eqx.Module, *args: Any, **kwargs: Any):
+        self.layer = layer
+
+    @jax.named_scope("predvae.nn.StatefulIdentity")
+    def __call__(
+        self, x: ArrayLike, state: eqx.nn.State, *, key: Optional[PRNGKeyArray] = None
+    ) -> ArrayLike:
+
+        out = self.layer(x)
+        return out, state
+
+
 class SpectralNormedLinear(eqx.Module):
 
-    spectral_linear: Union[eqx.nn.SpectralNorm[eqx.nn.Linear], Callable]
+    spectral_linear: Union[eqx.nn.SpectralNorm[eqx.nn.Linear], StatefulIdentity]
     use_spectral_norm: bool = eqx.field(static=True)
 
     def __init__(
@@ -46,7 +64,7 @@ class SpectralNormedLinear(eqx.Module):
             linear = eqx.nn.Linear(
                 in_features, out_features, use_bias=use_bias, key=linear_key
             )
-            self.spectral_linear = lambda x, state: (linear(x), state)
+            self.spectral_linear = StatefulIdentity(linear)
 
     def __call__(
         self, x: Array, input_state: eqx.nn.State
