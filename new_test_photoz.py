@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_test_early_stopping"
+RUN_NAME = "SSVAE_10"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -42,7 +42,7 @@ USE_SPEC_NORM = True
 # Training Config
 
 SEED = 5678
-EPOCHS = 2
+EPOCHS = 10
 EVAL_EVERY_N = 1
 LEARNING_RATE = 3e-4
 BATCH_SIZE = 1024
@@ -50,7 +50,7 @@ TRAIN_BATCHES_PER_EPOCH = 1
 VAL_BATCHES_PER_EPOCH = 1
 
 USE_EARLY_STOPPING = True
-EARLY_STOPPING_PATIENCE = 3
+EARLY_STOPPING_PATIENCE = 10
 
 REDUCE_LR_FACTOR = 0.1
 REDUCE_LR_PATIENCE = 2
@@ -58,12 +58,12 @@ REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
 
-N_SPLITS = 2
+N_SPLITS = 4
 SHUFFLE = True
 DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
-DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/")
-SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
+DATA_DIR = Path("/scratch/project/dd-23-98/Base/")
+SAVE_DIR = Path(f"/home/it4i-josman/PREDVAE/{RUN_NAME}")
 
 psf_columns = [f"psfmag_{b}" for b in "ugriz"] + ["w1mag", "w2mag"]
 psf_err_columns = [f"psfmagerr_{b}" for b in "ugriz"] + ["w1sigmag", "w2sigmag"]
@@ -82,10 +82,8 @@ print(
     "\n--------------------------------- LOADING DATA ---------------------------------\n"
 )
 
-spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_xmatch.csv")
-
-n_spec = spec_df.shape[0]
-photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", nrows=n_spec)
+spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv")
+photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
 
 (
     spec_psf_photometry,
@@ -134,6 +132,7 @@ photo_additional_info = jnp.log10(photo_additional_info)
 
 n_spec = spec_df.shape[0] / N_SPLITS
 n_photo = photo_df.shape[0] / N_SPLITS
+ALPHA = n_photo / n_spec
 spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
@@ -274,7 +273,7 @@ val_dataloader_keys, RNG_KEY = keys[:-1], keys[-1]
     val_photometric_dataloader_state,
 ) = data.make_vectorized_dataloader(
     val_photo_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=PHOTOMETRIC_BATCH_SIZE,
     rng_key=val_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
@@ -285,7 +284,7 @@ val_dataloader_keys, RNG_KEY = keys[:-1], keys[-1]
     val_spectroscopic_dataloader_state,
 ) = data.make_vectorized_dataloader(
     val_spec_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=SPECTROSCOPIC_BATCH_SIZE,
     rng_key=val_dataloader_keys,
     shuffle=SHUFFLE,
     drop_last=DROP_LAST,
@@ -369,7 +368,7 @@ filter_spec = eqx.tree_at(
 optimizer = optax.adam(LEARNING_RATE)
 optimizer_state = eqx.filter_vmap(optimizer.init)(eqx.filter(ssvae, eqx.is_array))
 
-loss_kwargs = {"alpha": 1.0, "missing_target_value": MISSING_TARGET_VALUE}
+loss_kwargs = {"alpha": ALPHA, "missing_target_value": MISSING_TARGET_VALUE}
 loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
 train_step = training.make_train_step(
@@ -400,6 +399,9 @@ train_loss = []
 train_aux = []
 val_loss = []
 val_aux = []
+best_val_epoch = -1
+
+# jax.profiler.start_trace("/scratch/project/dd-23-98/tensorboard")
 
 t0 = time.time()
 
@@ -409,10 +411,10 @@ for epoch in range(EPOCHS):
 
     train_batches = 0
     val_batches = 0
-    train_loss_value_sum = jnp.zeros((N_SPLITS,))
-    train_aux_sum = jnp.zeros((N_SPLITS, 3))
-    val_loss_value_sum = jnp.zeros((N_SPLITS,))
-    val_aux_sum = jnp.zeros((N_SPLITS, 3))
+    epoch_train_loss = []
+    epoch_train_aux = []
+    epoch_val_loss = []
+    epoch_val_aux = []
 
     t0_epoch = time.time()
 
@@ -445,24 +447,23 @@ for epoch in range(EPOCHS):
             input_state,
             optimizer_state,
         )
-        train_loss_value = jnp.nansum(jnp.array([train_loss_value, loss_value]), axis=0)
-        train_aux = jnp.nansum(jnp.array([train_aux, aux]), axis=0)
-
-        train_batches += 1
+        epoch_train_loss.append(loss_value)
+        epoch_train_aux.append(aux)
         print(
             f"Train Batch {train_batches} - {train_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {train_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
         )
 
+        train_batches += 1
         end_of_train_split = jnp.all(spectroscopic_reset_condition)
 
     t1 = time.time()
     train_step_time += t1 - t0_epoch
-    epoch_train_loss = train_loss_value / train_batches
-    epoch_train_aux = train_aux_sum / train_batches
+    epoch_train_loss = jnp.nansum(jnp.array(epoch_train_loss), axis=0) / train_batches
+    epoch_train_aux = jnp.nansum(jnp.array(epoch_train_aux), axis=0) / train_batches
 
-    print(
-        f"\nTrain Batches: {train_batches} - Time {t1-t0_epoch:.2f} s - Epoch Train Loss: {epoch_train_loss}\n"
-    )
+    # print(
+    #     f"\nTrain Batches: {train_batches} - Time {t1-t0_epoch:.2f} s - Epoch Train Loss: {epoch_train_loss}\n"
+    # )
     end_of_train_split = False
 
     t0_val = time.time()
@@ -485,38 +486,57 @@ for epoch in range(EPOCHS):
             resampling_key,
         )
 
-        ssvae, input_state, optimizer_state, loss_value, aux = val_step(
+        loss_value, input_state, aux = val_step(
             x,
             y,
             step_key,
             ssvae,
             input_state,
-            optimizer_state,
         )
-        val_loss_value = jnp.nansum(jnp.array([val_loss_value, loss_value]), axis=0)
-        val_aux = jnp.nansum(jnp.array([val_aux, aux]), axis=0)
+        epoch_val_loss.append(loss_value)
+        epoch_val_aux.append(aux)
 
+        # print(
+        #     f"val Batch {val_batches} - {val_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {val_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
+        # )
         val_batches += 1
-        print(
-            f"val Batch {val_batches} - {val_batches/expected_no_of_photo_batches:.3f}% of exp. photo - {val_batches/expected_no_of_spec_batches:.3f}% of exp. spec - Loss: {loss_value}"
-        )
-
         end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
     t1_val = time.time()
     val_step_time += t1_val - t0_val
-    epoch_val_loss = val_loss_value / val_batches
-    epoch_val_aux = val_aux_sum / val_batches
+    epoch_val_loss = jnp.nansum(jnp.array(epoch_val_loss), axis=0) / val_batches
+    epoch_val_aux = jnp.nansum(jnp.array(epoch_val_loss), axis=0) / val_batches
+
+    t1 = time.time()
+    epoch_time += t1 - t0_epoch
 
     print(
-        f"\nVal Batches: {val_batches} - Time {t1_val-t0_val:.2f} s - Epoch Val Loss: {epoch_val_loss}\n"
+        f"Epoch: {epoch} - Time: {t1-t0_epoch:.2f} s - Train Loss: {epoch_train_loss} - Val Loss: {epoch_val_loss}"
     )
     end_of_val_split = False
-    epoch_time += time.time() - t0_epoch
     train_loss.append(epoch_train_loss)
     train_aux.append(epoch_train_aux)
     val_loss.append(epoch_val_loss)
     val_aux.append(epoch_val_aux)
+
+    if len(val_loss) == 1 or jnp.nanmean(epoch_val_loss) < val_loss[epoch]:
+        best_val_epoch = epoch
+        training.save(SAVE_DIR / "best_model.pkl", ssvae)
+        train_losses = jnp.asarray(train_loss)
+        val_losses = jnp.asarray(val_loss)
+
+        train_auxes = jnp.asarray(train_aux)
+        val_auxes = jnp.asarray(val_aux)
+
+        np.save(SAVE_DIR / "train_losses.npy", train_losses)
+        np.save(SAVE_DIR / "val_losses.npy", val_losses)
+        np.save(SAVE_DIR / "train_auxes.npy", train_auxes)
+        np.save(SAVE_DIR / "val_auxes.npy", val_auxes)
+    
+    if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
+        print(f"\nEarly stopping after {epoch} epochs\n")
+
+# jax.profiler.stop_trace()
 
 val_step_time = val_step_time / EPOCHS
 train_step_time = train_step_time / EPOCHS
@@ -524,5 +544,23 @@ epoch_time = epoch_time / EPOCHS
 train_time = time.time() - t0
 
 print(
-    f"\nTrain Time: {train_time:.2f} s - Train Step Time: {train_step_time:.2f} s - Val Step Time: {val_step_time:.2f} s - Epoch Time: {epoch_time:.2f} s"
+    f"\nTrain Time: {train_time:.2f} s - Train Step Time: {train_step_time:.2f} s - Val Step Time: {val_step_time:.2f} s - Epoch Time: {epoch_time:.2f} s - Best Epoch: {best_val_epoch}"
 )
+
+print(
+    "\n--------------------------------- SAVING MODEL ---------------------------------\n"
+)
+
+training.save(SAVE_DIR / "final_model.pkl", ssvae)
+
+train_losses = jnp.asarray(train_loss)
+val_losses = jnp.asarray(val_loss)
+
+train_auxes = jnp.asarray(train_aux)
+val_auxes = jnp.asarray(val_aux)
+
+np.save(SAVE_DIR / "train_losses.npy", train_losses)
+np.save(SAVE_DIR / "val_losses.npy", val_losses)
+np.save(SAVE_DIR / "train_auxes.npy", train_auxes)
+np.save(SAVE_DIR / "val_auxes.npy", val_auxes)
+# np.save(SAVE_DIR / "lr_history.npy", lr_history)
