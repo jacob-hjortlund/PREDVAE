@@ -57,7 +57,7 @@ REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
 
-N_SPLITS = 4
+N_SPLITS = 2
 SHUFFLE = True
 DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
@@ -417,8 +417,6 @@ best_val_epoch = -1
 
 t0 = time.time()
 
-epoch_val_loss = jnp.ones(N_SPLITS) * 1e50
-
 for epoch in range(EPOCHS):
 
     print(f"\nEpoch {epoch} / {EPOCHS}\n")
@@ -429,6 +427,10 @@ for epoch in range(EPOCHS):
     epoch_train_aux = []
     epoch_val_loss = []
     epoch_val_aux = []
+    if len(val_loss) < 1:
+        lr_val_loss = jnp.ones(N_SPLITS) * 1e50
+    else:
+        lr_val_loss = val_loss[-1]
 
     t0_epoch = time.time()
 
@@ -470,7 +472,7 @@ for epoch in range(EPOCHS):
             optimizer_state,
             lr_reducer,
             lr_reducer_state,
-            epoch_val_loss,
+            lr_val_loss,
         )
         epoch_train_loss.append(loss_value)
         epoch_train_aux.append(aux)
