@@ -16,6 +16,61 @@ from collections.abc import Callable
 from optax import contrib as optax_contrib
 
 
+class ReduceLRonPlateau(eqx.Module):
+    patience: int
+    factor: float
+    rtol: float
+    atol: float
+
+    loss_index: eqx.nn.StateIndex
+    count_index: eqx.nn.StateIndex
+    lr_index: eqx.nn.StateIndex
+
+    def __init__(
+        self,
+        patience: ArrayLike = 10,
+        factor: ArrayLike = 0.1,
+        rtol: ArrayLike = 1e-4,
+        atol: ArrayLike = 0.0,
+    ):
+        self.patience = patience
+        self.factor = factor
+        self.rtol = rtol
+        self.atol = atol
+
+        self.loss_index = eqx.nn.StateIndex(jnp.inf)
+        self.count_index = eqx.nn.StateIndex(jnp.array(0))
+        self.lr_index = eqx.nn.StateIndex(jnp.array(1.0))
+
+    def __call__(
+        self,
+        updates: PyTree,
+        loss: ArrayLike,
+        state: eqx.nn.State,
+    ):
+
+        current_loss = state.get(self.loss_index)
+        has_improved = jnp.where(
+            loss < (1 - self.rtol) * current_loss - self.atol, True, False
+        )
+        new_loss = jnp.where(has_improved, loss, current_loss)
+
+        count = state.get(self.count_index)
+        new_count = jnp.where(has_improved, 0, count + 1)
+
+        lr = state.get(self.lr_index)
+        new_lr = jnp.where(new_count >= self.patience, lr * self.factor, lr)
+        new_count = jnp.where(new_count >= self.patience, 0, new_count)
+
+        state = state.set(self.loss_index, new_loss)
+        state = state.set(self.count_index, new_count)
+        state = state.set(self.lr_index, new_lr)
+
+        updates = tree_map(lambda g: new_lr * g, updates)
+
+        return updates, state, new_lr
+
+
 def save(filename, model):
     with open(filename, "wb") as f:
         eqx.tree_serialise_leaves(f, model)
@@ -41,6 +96,9 @@ def make_train_step(
         model: eqx.Module,
         input_state: eqx.nn.State,
         optimizer_state: PyTree,
+        lr_reducer: eqx.Module,
+        lr_reducer_state: eqx.nn.State,
+        val_loss: ArrayLike,
     ):
 
         free_params, frozen_params = eqx.partition(model, filter_spec)
@@ -50,9 +108,20 @@ def make_train_step(
         )(free_params, frozen_params, input_state, x, y, rng_key)
 
         updates, optimizer_state = optimizer.update(grads, optimizer_state, model)
+        updates, lr_reducer_state, lr_scale = lr_reducer(
+            updates, val_loss, lr_reducer_state
+        )
         model = eqx.apply_updates(model, updates)
 
-        return model, output_state, optimizer_state, loss_value, aux
+        return (
+            model,
+            output_state,
+            optimizer_state,
+            lr_reducer_state,
+            loss_value,
+            aux,
+            lr_scale,
+        )
 
     if vectorize:
         train_step = eqx.filter_vmap(train_step)

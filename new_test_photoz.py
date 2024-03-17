@@ -42,8 +42,7 @@ USE_SPEC_NORM = False
 # Training Config
 
 SEED = 5678
-EPOCHS = 2
-EVAL_EVERY_N = 1
+EPOCHS = 10
 LEARNING_RATE = 3e-4
 BATCH_SIZE = 1024
 TRAIN_BATCHES_PER_EPOCH = 1
@@ -53,7 +52,7 @@ USE_EARLY_STOPPING = True
 EARLY_STOPPING_PATIENCE = 10
 
 REDUCE_LR_FACTOR = 0.1
-REDUCE_LR_PATIENCE = 2
+REDUCE_LR_PATIENCE = 1
 REDUCE_LR_ON_PLATEAU = True
 
 # Data Config
@@ -64,6 +63,8 @@ DROP_LAST = True
 MISSING_TARGET_VALUE = -9999.0
 DATA_DIR = Path("/scratch/project/dd-23-98/Base/")
 SAVE_DIR = Path(f"/home/it4i-josman/PREDVAE/{RUN_NAME}")
+# DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/")
+# SAVE_DIR = Path(f"/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/{RUN_NAME}")
 
 psf_columns = [f"psfmag_{b}" for b in "ugriz"] + ["w1mag", "w2mag"]
 psf_err_columns = [f"psfmagerr_{b}" for b in "ugriz"] + ["w1sigmag", "w2sigmag"]
@@ -82,9 +83,12 @@ print(
     "\n--------------------------------- LOADING DATA ---------------------------------\n"
 )
 
-spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv")
+spec_df = pd.read_csv(
+    DATA_DIR / "SDSS_spec_train.csv"
+)  # , nrows=N_SPLITS * BATCH_SIZE * 2)
 photo_df = pd.read_csv(
-    DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1]
+    DATA_DIR / "SDSS_photo_xmatch.csv",
+    skiprows=[1],  # , nrows=N_SPLITS * BATCH_SIZE * 2
 )
 
 (
@@ -370,6 +374,11 @@ filter_spec = eqx.tree_at(
 optimizer = optax.adam(LEARNING_RATE)
 optimizer_state = eqx.filter_vmap(optimizer.init)(eqx.filter(ssvae, eqx.is_array))
 
+lr_reducer, lr_reducer_state = eqx.filter_vmap(
+    eqx.nn.make_with_state(training.ReduceLRonPlateau)
+)(jnp.ones(N_SPLITS) * REDUCE_LR_FACTOR, jnp.ones(N_SPLITS) * REDUCE_LR_PATIENCE)
+
+
 loss_kwargs = {"alpha": ALPHA, "missing_target_value": MISSING_TARGET_VALUE}
 loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -401,11 +410,14 @@ train_loss = []
 train_aux = []
 val_loss = []
 val_aux = []
+lr_history = []
 best_val_epoch = -1
 
 # jax.profiler.start_trace("/scratch/project/dd-23-98/tensorboard")
 
 t0 = time.time()
+
+epoch_val_loss = jnp.ones(N_SPLITS) * 1e50
 
 for epoch in range(EPOCHS):
 
@@ -441,13 +453,24 @@ for epoch in range(EPOCHS):
             resampling_key,
         )
 
-        ssvae, input_state, optimizer_state, loss_value, aux = train_step(
+        (
+            ssvae,
+            input_state,
+            optimizer_state,
+            lr_reducer_state,
+            loss_value,
+            aux,
+            lr_scale,
+        ) = train_step(
             x,
             y,
             step_key,
             ssvae,
             input_state,
             optimizer_state,
+            lr_reducer,
+            lr_reducer_state,
+            epoch_val_loss,
         )
         epoch_train_loss.append(loss_value)
         epoch_train_aux.append(aux)
@@ -508,8 +531,14 @@ for epoch in range(EPOCHS):
     mean_epoch_val_loss = jnp.mean(epoch_val_loss)
     mean_epoch_train_aux = jnp.mean(epoch_train_aux, axis=0)
     mean_epoch_val_aux = jnp.mean(epoch_val_aux, axis=0)
+
+    lr_scale_strings = [f"{lr:.0e}" for lr in lr_scale]
+    lr_scale_string = ", ".join(lr_scale_strings)
+    epoch_val_loss_strings = [f"{loss:.2f}" for loss in epoch_val_loss]
+    epoch_val_loss_string = ", ".join(epoch_val_loss_strings)
+
     print(
-        f"Epoch: {epoch} - Time: {t1-t0_epoch:.2f} s - Train Loss: {mean_epoch_train_loss:.3f} - Val Loss: {mean_epoch_val_loss:.3f} - "
+        f"Epoch: {epoch} - Time: {t1-t0_epoch:.2f} s - LR: {lr_scale_string} - Train Loss: {mean_epoch_train_loss:.3f} - Val Loss: {epoch_val_loss_string} - "  # {mean_epoch_val_loss:.3f} - "
         + f"TU Loss: {mean_epoch_train_aux[0]:.3f} - TS Loss: {mean_epoch_train_aux[1]:.3f} - TT Loss: {mean_epoch_train_aux[2]:.3f} - "
         + f"VU Loss: {mean_epoch_val_aux[0]:.3f} - VS Loss: {mean_epoch_val_aux[1]:.3f} - VT Loss: {mean_epoch_val_aux[2]:.3f}"
     )
@@ -518,6 +547,7 @@ for epoch in range(EPOCHS):
     train_aux.append(epoch_train_aux)
     val_loss.append(epoch_val_loss)
     val_aux.append(epoch_val_aux)
+    lr_history.append(lr_scale)
 
     if len(val_loss) == 1 or mean_epoch_val_loss < jnp.nanmean(val_loss[epoch]):
         best_val_epoch = epoch
