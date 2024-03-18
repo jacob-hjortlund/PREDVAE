@@ -74,7 +74,7 @@ z_column = ["z"]
 objid_column = ["objid"]
 
 SAVE_DIR.mkdir(exist_ok=True)
-VECTORIZE = True if N_SPLITS > 1 else False
+VECTORIZE = True
 RNG_KEY = jax.random.PRNGKey(SEED)
 
 
@@ -415,10 +415,6 @@ for epoch in range(EPOCHS):
     epoch_train_aux = []
     epoch_val_loss = []
     epoch_val_aux = []
-    if len(val_loss) < 1:
-        lr_val_loss = jnp.ones(N_SPLITS) * 1e50
-    else:
-        lr_val_loss = val_loss[-1]
 
     t0_epoch = time.time()
 
@@ -450,7 +446,6 @@ for epoch in range(EPOCHS):
             ssvae,
             input_state,
             optimizer_state,
-            epoch_val_loss,
         )
         epoch_train_loss.append(loss_value)
         epoch_train_aux.append(aux)
