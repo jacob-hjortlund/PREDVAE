@@ -44,22 +44,19 @@ def create_input_arrays(
     else:
         z = jnp.ones((psf_photometry.shape[0], 1)) * default_value
 
-    if n_splits > 1:
-        psf_photometry = psf_photometry.reshape(n_splits, -1, psf_photometry.shape[-1])
-        psf_photometry_err = psf_photometry_err.reshape(
-            n_splits, -1, psf_photometry_err.shape[-1]
-        )
-        model_photometry = model_photometry.reshape(
-            n_splits, -1, model_photometry.shape[-1]
-        )
-        model_photometry_err = model_photometry_err.reshape(
-            n_splits, -1, model_photometry_err.shape[-1]
-        )
-        additional_info = additional_info.reshape(
-            n_splits, -1, additional_info.shape[-1]
-        )
-        z = z.reshape(n_splits, -1, z.shape[-1])
-        objid = objid.reshape(n_splits, -1, objid.shape[-1])
+    psf_photometry = psf_photometry.reshape(n_splits, -1, psf_photometry.shape[-1])
+    psf_photometry_err = psf_photometry_err.reshape(
+        n_splits, -1, psf_photometry_err.shape[-1]
+    )
+    model_photometry = model_photometry.reshape(
+        n_splits, -1, model_photometry.shape[-1]
+    )
+    model_photometry_err = model_photometry_err.reshape(
+        n_splits, -1, model_photometry_err.shape[-1]
+    )
+    additional_info = additional_info.reshape(n_splits, -1, additional_info.shape[-1])
+    z = z.reshape(n_splits, -1, z.shape[-1])
+    objid = objid.reshape(n_splits, -1, objid.shape[-1])
 
     return (
         psf_photometry,
