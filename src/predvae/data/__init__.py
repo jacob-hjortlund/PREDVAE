@@ -11,5 +11,5 @@ from .utils import (
     dataset_iterator,
     make_dataset_iterator,
     make_spectrophotometric_iterator,
-    make_vectorized_dataloader,
+    make_dataloader,
 )

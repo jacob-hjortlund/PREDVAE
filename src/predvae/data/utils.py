@@ -69,18 +69,25 @@ def create_input_arrays(
     )
 
 
-def make_vectorized_dataloader(
+def make_dataloader(
     dataset: SpectroPhotometricDataset,
     batch_size: int,
     rng_key: ArrayLike,
     shuffle: bool = False,
     drop_last: bool = False,
+    vectorized: bool = False,
 ):
 
-    dataloader, state = eqx.filter_vmap(
-        eqx.nn.make_with_state(DataLoader),
-        in_axes=(eqx.if_array(0), None, None, None, eqx.if_array(0)),
-    )(dataset, batch_size, shuffle, drop_last, rng_key)
+    if vectorized:
+        dataloader, state = eqx.filter_vmap(
+            eqx.nn.make_with_state(DataLoader),
+            in_axes=(eqx.if_array(0), None, None, None, eqx.if_array(0)),
+        )(dataset, batch_size, shuffle, drop_last, rng_key)
+
+    else:
+        dataloader, state = eqx.nn.make_with_state(DataLoader)(
+            dataset, batch_size, shuffle, drop_last, rng_key
+        )
 
     return dataloader, state
 
