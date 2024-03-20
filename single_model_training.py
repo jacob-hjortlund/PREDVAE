@@ -172,7 +172,9 @@ photo_objid = photo_objid.squeeze(axis=0)
 # ----------------------------- SPLIT INTO TRAIN AND VAL -----------------------------
 
 spec_split_key, photo_split_key, RNG_KEY = jr.split(RNG_KEY, 3)
-spec_val_mask = jax.random.bernoulli(spec_split_key, p=VAL_FRAC, shape=(spec_z.shape[0],))
+spec_val_mask = jax.random.bernoulli(
+    spec_split_key, p=VAL_FRAC, shape=(spec_z.shape[0],)
+)
 photo_val_mask = jax.random.bernoulli(
     photo_split_key, p=VAL_FRAC, shape=(photo_objid.shape[0],)
 )
@@ -393,7 +395,9 @@ target_prior = nn.Gaussian(
     log_sigma=jnp.zeros(PREDICTOR_SIZE),
 )
 
-ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(encoder, decoder, predictor, latent_prior, target_prior)
+ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(
+    encoder, decoder, predictor, latent_prior, target_prior
+)
 
 filter_spec = tree_map(lambda _: True, ssvae)
 filter_spec = eqx.tree_at(
@@ -412,20 +416,20 @@ optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 loss_kwargs = {"alpha": ALPHA, "missing_target_value": MISSING_TARGET_VALUE}
 loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
-train_step = training.make_train_step(
+_train_step = training.make_train_step(
     optimizer=optimizer,
     loss_fn=loss_fn,
     filter_spec=filter_spec,
 )
 
-val_step = training.make_eval_step(
+_val_step = training.make_eval_step(
     loss_fn=loss_fn,
     filter_spec=filter_spec,
 )
 
-train_step = eqx.filter_jit(train_step)
-val_step = eqx.filter_jit(val_step)
-train_iterator = eqx.filter_jit(train_iterator)
+# train_step = eqx.filter_jit(train_step)
+# val_step = eqx.filter_jit(val_step)
+# train_iterator = eqx.filter_jit(train_iterator)
 
 val_step_time = 0
 train_step_time = 0
@@ -439,6 +443,121 @@ best_val_loss = -jnp.inf
 best_val_epoch = -1
 
 # jax.profiler.start_trace("/scratch/project/dd-23-98/tensorboard")
+
+
+@eqx.filter_jit
+def train_step(
+    ssvae, ssvae_state, optimizer_state, photo_dl_state, spec_dl_state, rng_key
+):
+
+    resampling_key, step_key = jr.split(rng_key)
+
+    (
+        x,
+        y,
+        photo_dl_state,
+        spec_dl_state,
+        _,
+        spectroscopic_reset_condition,
+    ) = train_iterator(
+        photo_dl_state,
+        spec_dl_state,
+        resampling_key,
+    )
+
+    end_of_split = jnp.all(spectroscopic_reset_condition)
+
+    ssvae, ssvae_state, optimizer_state, loss_value, aux = _train_step(
+        x,
+        y,
+        step_key,
+        ssvae,
+        ssvae_state,
+        optimizer_state,
+    )
+
+    return (
+        loss_value,
+        aux,
+        ssvae,
+        ssvae_state,
+        optimizer_state,
+        photo_dl_state,
+        spec_dl_state,
+        end_of_split,
+    )
+
+
+def eval_step(
+    ssvae,
+    ssvae_state,
+    train_photo_dl_state,
+    train_spec_dl_state,
+    val_photo_dl_state,
+    val_spec_dl_state,
+    rng_key,
+):
+
+    train_resampling_key, val_resampling_key, rng_key = jr.split(rng_key, 3)
+    train_step_key, val_step_key = jr.split(rng_key)
+
+    (
+        x_val_split,
+        y_val_split,
+        val_photo_dl_state,
+        val_spec_dl_state,
+        photometric_reset_condition,
+        spectroscopic_reset_condition,
+    ) = val_iterator(
+        val_photo_dl_state,
+        val_spec_dl_state,
+        val_resampling_key,
+    )
+
+    (
+        x_train_split,
+        y_train_split,
+        train_photo_dl_state,
+        train_spec_dl_state,
+        _,
+        _,
+    ) = train_iterator(
+        train_photo_dl_state,
+        train_spec_dl_state,
+        train_resampling_key,
+    )
+
+    train_loss_value, ssvae_state, train_aux = _val_step(
+        x_train_split,
+        y_train_split,
+        train_step_key,
+        ssvae,
+        ssvae_state,
+    )
+
+    val_loss_value, input_state, val_aux = _val_step(
+        x_val_split,
+        y_val_split,
+        val_step_key,
+        ssvae,
+        ssvae_state,
+    )
+
+    end_of_val_split = jnp.all(spectroscopic_reset_condition)
+
+    return (
+        train_loss_value,
+        train_aux,
+        val_loss_value,
+        val_aux,
+        input_state,
+        train_photo_dl_state,
+        train_spec_dl_state,
+        val_photo_dl_state,
+        val_spec_dl_state,
+        end_of_val_split,
+    )
+
 
 t0 = time.time()
 
@@ -462,37 +581,33 @@ for epoch in range(EPOCHS):
 
     while not end_of_train_split:
 
-        resampling_key, step_key, epoch_train_key = jr.split(epoch_train_key, 3)
+        step_key, epoch_train_key = jr.split(epoch_train_key)
 
         (
-            x,
-            y,
+            batch_train_loss,
+            batch_train_aux,
+            ssvae,
+            input_state,
+            optimizer_state,
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
-            photometric_reset_condition,
-            spectroscopic_reset_condition,
-        ) = train_iterator(
+            end_of_train_split,
+        ) = train_step(
+            ssvae,
+            input_state,
+            optimizer_state,
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
-            resampling_key,
+            step_key,
         )
 
-        end_of_train_split = jnp.all(spectroscopic_reset_condition)
         if end_of_train_split:
             break
 
         train_batches += 1
-        print(f"Train Batch {train_batches} / {expected_n_train_spec_batches}: {train_batches / expected_n_train_spec_batches *100:.2f}%")
-
-        ssvae, input_state, optimizer_state, loss_value, aux = train_step(
-            x,
-            y,
-            step_key,
-            ssvae,
-            input_state,
-            optimizer_state,
+        print(
+            f"Train Batch {train_batches} / {expected_n_train_spec_batches}: {train_batches / expected_n_train_spec_batches *100:.2f}%"
         )
-        
 
     t1 = time.time()
     train_step_time += t1 - t0_epoch
@@ -503,72 +618,50 @@ for epoch in range(EPOCHS):
     while not end_of_val_split:
 
         t0_single = time.time()
-        train_resampling_key, val_resampling_key, epoch_val_key = jr.split(
-            epoch_val_key, 3
-        )
-        train_val_step_key, val_val_step_key, epoch_val_key = jr.split(epoch_val_key, 3)
+
+        val_step_key, epoch_val_key = jr.split(epoch_val_key)
 
         (
-            x_val_split,
-            y_val_split,
+            batch_train_loss,
+            batch_train_aux,
+            batch_val_loss,
+            batch_val_aux,
+            input_state,
+            train_photometric_dataloader_state,
+            train_spectroscopic_dataloader_state,
             val_photometric_dataloader_state,
             val_spectroscopic_dataloader_state,
-            photometric_reset_condition,
-            spectroscopic_reset_condition,
-        ) = val_iterator(
+            end_split_condition,
+        ) = eval_step(
+            inference_ssvae,
+            input_state,
+            train_photometric_dataloader_state,
+            train_spectroscopic_dataloader_state,
             val_photometric_dataloader_state,
             val_spectroscopic_dataloader_state,
-            val_resampling_key,
+            val_step_key,
         )
 
-        end_of_val_split = jnp.all(spectroscopic_reset_condition)
+        end_of_val_split = jnp.all(end_split_condition)
         if end_of_val_split:
             break
 
-        (
-            x_train_split,
-            y_train_split,
-            train_photometric_dataloader_state,
-            train_spectroscopic_dataloader_state,
-            _,
-            _,
-        ) = train_iterator(
-            train_photometric_dataloader_state,
-            train_spectroscopic_dataloader_state,
-            resampling_key,
-        )
-
-        train_loss_value, input_state, train_aux = val_step(
-            x_train_split,
-            y_train_split,
-            train_val_step_key,
-            inference_ssvae,
-            input_state,
-        )
-        epoch_train_loss.append(train_loss_value)
-        epoch_train_aux.append(train_aux)
-
-        val_loss_value, input_state, val_aux = val_step(
-            x_val_split,
-            y_val_split,
-            val_val_step_key,
-            inference_ssvae,
-            input_state,
-        )
-        epoch_val_loss.append(val_loss_value)
-        epoch_val_aux.append(val_aux)
+        epoch_train_loss.append(batch_train_loss)
+        epoch_train_aux.append(batch_train_aux)
+        epoch_val_loss.append(batch_val_loss)
+        epoch_val_aux.append(batch_val_aux)
 
         val_batches += 1
         t1_single = time.time()
-        print(f"Val batch {val_batches} / {expected_n_val_spec_batches}: {val_batches / expected_n_val_spec_batches * 100:.2f} %. Time taken: {(t1_single - t0_single)/60:.2f} m")
+        print(
+            f"Val batch {val_batches} / {expected_n_val_spec_batches}: {val_batches / expected_n_val_spec_batches * 100:.2f} %. Time taken: {(t1_single - t0_single)/60:.2f} m"
+        )
 
     train_photometric_dataloader_state.set(
-        train_photometric_dataloader.reset_index,
-        jnp.array(True)
+        train_photometric_dataloader.reset_index, jnp.array(True)
     )
     train_spectroscopic_dataloader_state.set(
-        train_spectroscopic_dataloader.reset_index,
-        jnp.array(True)
+        train_spectroscopic_dataloader.reset_index, jnp.array(True)
     )
 
     t1_val = time.time()
