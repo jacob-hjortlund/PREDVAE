@@ -33,11 +33,11 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "test"
+RUN_NAME = "test_single"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
-USE_SPEC_NORM = False
+USE_SPEC_NORM = True
 
 # Training Config
 
@@ -172,9 +172,9 @@ photo_objid = photo_objid.squeeze(axis=0)
 # ----------------------------- SPLIT INTO TRAIN AND VAL -----------------------------
 
 spec_split_key, photo_split_key, RNG_KEY = jr.split(RNG_KEY, 3)
-spec_val_mask = jax.random.bernoulli(spec_split_key, p=VAL_FRAC, shape=spec_z.shape)
+spec_val_mask = jax.random.bernoulli(spec_split_key, p=VAL_FRAC, shape=(spec_z.shape[0],))
 photo_val_mask = jax.random.bernoulli(
-    photo_split_key, p=VAL_FRAC, shape=photo_objid.shape
+    photo_split_key, p=VAL_FRAC, shape=(photo_objid.shape[0],)
 )
 
 spec_psf_photometry_train = spec_psf_photometry[~spec_val_mask]
@@ -255,6 +255,8 @@ train_photo_dataset = data.SpectroPhotometricDataset(
 train_dataset_statistics = data.SpectroPhotometricStatistics(
     train_photo_dataset, train_spec_dataset
 )
+
+training.save(SAVE_DIR / "train_dataset_statistics.pkl", train_dataset_statistics)
 
 val_spec_dataset = data.SpectroPhotometricDataset(
     spec_psf_photometry_val,
@@ -391,7 +393,7 @@ target_prior = nn.Gaussian(
     log_sigma=jnp.zeros(PREDICTOR_SIZE),
 )
 
-ssvae, input_state = nn.SSVAE(encoder, decoder, predictor, latent_prior, target_prior)
+ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(encoder, decoder, predictor, latent_prior, target_prior)
 
 filter_spec = tree_map(lambda _: True, ssvae)
 filter_spec = eqx.tree_at(
@@ -479,6 +481,9 @@ for epoch in range(EPOCHS):
         if end_of_train_split:
             break
 
+        train_batches += 1
+        print(f"Train Batch {train_batches} / {expected_n_train_spec_batches}: {train_batches / expected_n_train_spec_batches *100:.2f}%")
+
         ssvae, input_state, optimizer_state, loss_value, aux = train_step(
             x,
             y,
@@ -487,6 +492,7 @@ for epoch in range(EPOCHS):
             input_state,
             optimizer_state,
         )
+        
 
     t1 = time.time()
     train_step_time += t1 - t0_epoch
@@ -496,6 +502,7 @@ for epoch in range(EPOCHS):
     t0_val = time.time()
     while not end_of_val_split:
 
+        t0_single = time.time()
         train_resampling_key, val_resampling_key, epoch_val_key = jr.split(
             epoch_val_key, 3
         )
@@ -552,6 +559,17 @@ for epoch in range(EPOCHS):
         epoch_val_aux.append(val_aux)
 
         val_batches += 1
+        t1_single = time.time()
+        print(f"Val batch {val_batches} / {expected_n_val_spec_batches}: {val_batches / expected_n_val_spec_batches * 100:.2f} %. Time taken: {(t1_single - t0_single)/60:.2f} m")
+
+    train_photometric_dataloader_state.set(
+        train_photometric_dataloader.reset_index,
+        jnp.array(True)
+    )
+    train_spectroscopic_dataloader_state.set(
+        train_spectroscopic_dataloader.reset_index,
+        jnp.array(True)
+    )
 
     t1_val = time.time()
     val_step_time += t1_val - t0_val
