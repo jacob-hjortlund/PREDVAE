@@ -45,14 +45,14 @@ def make_train_step(
 
         free_params, frozen_params = eqx.partition(model, filter_spec)
 
-        (loss_value, (aux, output_state)), grads = eqx.filter_value_and_grad(
+        (loss_value, (loss_aux, _, _, output_state)), grads = eqx.filter_value_and_grad(
             loss_fn, has_aux=True
         )(free_params, frozen_params, input_state, x, y, rng_key)
 
         updates, optimizer_state = optimizer.update(grads, optimizer_state, model)
         model = eqx.apply_updates(model, updates)
 
-        return model, output_state, optimizer_state, loss_value, aux
+        return model, output_state, optimizer_state, loss_value, loss_aux
 
     if vectorize:
         train_step = eqx.filter_vmap(train_step)
@@ -73,10 +73,10 @@ def make_eval_step(
         input_state: eqx.nn.State,
     ):
         free_params, frozen_params = eqx.partition(model, filter_spec)
-        loss_value, (aux, output_state) = loss_fn(
+        loss_value, (loss_aux, target_means, target_stds, output_state) = loss_fn(
             free_params, frozen_params, input_state, x, y, rng_key
         )
-        return loss_value, output_state, aux
+        return loss_value, output_state, loss_aux, target_means, target_stds
 
     if vectorize:
         eval_step = eqx.filter_vmap(eval_step)
