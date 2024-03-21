@@ -116,7 +116,7 @@ def _supervised_sample_loss(
     target_mean = y_pars[0]
     target_std = y_pars[1]
 
-    return loss, target_mean, target_std, decoder_state
+    return (loss, target_mean, target_std), decoder_state
 
 
 def _unsupervised_sample_loss(
@@ -148,10 +148,10 @@ def _unsupervised_sample_loss(
     )
 
     loss = jnp.array([unsupervised_loss, -9999.0, -9999.0])
-    target_mean = -9999.0
-    target_std = -9999.0
+    target_mean = jnp.ones_like(y_pars[0]) * -9999.0
+    target_std = jnp.ones_like(y_pars[1]) * -9999.0
 
-    return loss, target_mean, target_std, decoder_state
+    return (loss, target_mean, target_std), decoder_state
 
 
 def _sample_loss(
@@ -165,7 +165,10 @@ def _sample_loss(
 ):
 
     unsupervised_loss_args = [model, input_state, x, target_transform(y), rng_key]
-    (dynamic_unsupervised_loss, dynamic_unsupervised_state), (
+    (
+        dynamic_unsupervised_loss,
+        dynamic_unsupervised_state
+    ), (
         static_unsupervised_loss,
         static_unsupervised_state,
     ) = eqx.partition(_unsupervised_sample_loss(*unsupervised_loss_args), eqx.is_array)
@@ -228,7 +231,7 @@ def ssvae_loss(
     vmapped_sample_loss = vmap(
         _sample_loss,
         in_axes=(None, None, 0, 0, None, None, None),
-        out_axes=(0, 0, 0, None),
+        out_axes=(0, None),
     )
     loss_fn_outputs, output_state = vmapped_sample_loss(
         model, input_state, x, y, rng_key, missing_target_value, target_transform

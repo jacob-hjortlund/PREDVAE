@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "ALPHA_1"
+RUN_NAME = "LOG_TEST"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -90,7 +90,7 @@ photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
 
 n_spec = spec_df.shape[0] / N_SPLITS
 n_photo = photo_df.shape[0] / N_SPLITS
-ALPHA = 1.0  # n_photo / n_spec
+ALPHA = n_photo / n_spec
 spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
@@ -628,6 +628,7 @@ for epoch in range(EPOCHS):
         train_batches += 1
 
     t1 = time.time()
+    print(f"End of train: {t1-t0_epoch}")
     train_step_time += t1 - t0_epoch
 
     inference_ssvae = eqx.nn.inference_mode(ssvae)
@@ -678,6 +679,7 @@ for epoch in range(EPOCHS):
             epoch_val_target_stds.append(batch_val_target_stds)
 
         val_batches += 1
+        print(f"Val Batch: {val_batches / expected_n_val_spec_batches*100:.2f} %")
         t1_single = time.time()
 
     train_photometric_dataloader_state = train_photometric_dataloader_state.set(
