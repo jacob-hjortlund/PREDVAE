@@ -433,12 +433,11 @@ _val_step = training.make_eval_step(
 
 val_step_time = 0
 train_step_time = 0
+prediction_step_time = 0
 epoch_time = 0
 
 train_loss = []
 train_aux = []
-train_target_means = []
-train_target_stds = []
 val_loss = []
 val_aux = []
 val_target_means = []
@@ -568,6 +567,61 @@ def eval_step(
     )
 
 
+@eqx.filter_vmap(in_axes=(None, None, 0, None))
+def _call_model(
+    ssvae,
+    ssvae_state,
+    x,
+    rng_key,
+):
+
+    _, y_pars, predictor_state = ssvae.predict(x, ssvae_state, rng_key)
+    y_mean = y_pars[0]
+    y_logstd = y_pars[1]
+
+    return y_mean, y_logstd, predictor_state
+
+
+@eqx.filter_jit
+def call_model(
+    ssvae,
+    ssvae_state,
+    val_photo_dl_state,
+    val_spec_dl_state,
+    rng_key,
+):
+
+    resampling_key, predictor_key = jr.split(rng_key)
+
+    (
+        x,
+        y,
+        val_photo_dl_state,
+        val_spec_dl_state,
+        _,
+        spectroscopic_reset_condition,
+    ) = val_iterator(
+        val_photo_dl_state,
+        val_spec_dl_state,
+        resampling_key,
+    )
+
+    end_of_split = jnp.all(spectroscopic_reset_condition)
+
+    y_means, y_logstds, predictor_state = _call_model(
+        ssvae, ssvae_state, x, predictor_key
+    )
+
+    return (
+        y_means,
+        y_logstds,
+        predictor_state,
+        val_photo_dl_state,
+        val_spec_dl_state,
+        end_of_split,
+    )
+
+
 t0 = time.time()
 
 for epoch in range(EPOCHS):
@@ -576,13 +630,12 @@ for epoch in range(EPOCHS):
 
     end_of_train_split = False
     end_of_val_split = False
+    end_of_prediction_split = False
 
     train_batches = 0
     val_batches = 0
     epoch_train_loss = []
     epoch_train_aux = []
-    # epoch_train_target_means = []
-    # epoch_train_target_stds = []
     epoch_val_loss = []
     epoch_val_aux = []
     epoch_val_target_means = []
@@ -662,7 +715,7 @@ for epoch in range(EPOCHS):
         epoch_val_aux.append(batch_val_aux)
 
         val_batches += 1
-        print(f"Val Batch: {val_batches / expected_n_val_spec_batches*100:.2f} %")
+        # print(f"Val Batch: {val_batches / expected_n_val_spec_batches*100:.2f} %")
         t1_single = time.time()
 
     train_photometric_dataloader_state = train_photometric_dataloader_state.set(
@@ -674,6 +727,7 @@ for epoch in range(EPOCHS):
 
     t1_val = time.time()
     val_step_time += t1_val - t0_val
+    print(f"End of val: {t1_val-t0_val}")
 
     epoch_train_loss = jnp.mean(jnp.array(epoch_train_loss), axis=0)
     epoch_train_aux = jnp.mean(jnp.array(epoch_train_aux), axis=0)
@@ -686,6 +740,34 @@ for epoch in range(EPOCHS):
     val_aux.append(epoch_val_aux)
 
     if epoch % LOG_EVERY == 0:
+
+        t0_pred = time.time()
+
+        while not end_of_prediction_split:
+
+            pred_key, epoch_val_key = jr.split(epoch_val_key)
+
+            (
+                y_means,
+                y_logstds,
+                input_state,
+                val_photometric_dataloader_state,
+                val_spectroscopic_dataloader_state,
+                end_of_prediction_split,
+            ) = call_model(
+                inference_ssvae,
+                input_state,
+                val_photometric_dataloader_state,
+                val_spectroscopic_dataloader_state,
+                pred_key,
+            )
+
+            epoch_val_target_means.append(y_means)
+            epoch_val_target_stds.append(y_logstds)
+
+        t1_pred = time.time()
+        prediction_step_time += t1_pred - t0_pred
+        print(f"End of prediction: {t1_pred-t0_pred}")
 
         epoch_val_target_means = jnp.concatenate(epoch_val_target_means, axis=0)
         epoch_val_target_stds = jnp.concatenate(epoch_val_target_stds, axis=0)
