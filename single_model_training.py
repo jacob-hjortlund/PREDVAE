@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "test_single"
+RUN_NAME = "ALPHA_1"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -42,9 +42,10 @@ USE_SPEC_NORM = True
 # Training Config
 
 SEED = 5678
-EPOCHS = 2
-EVAL_EVERY_N = 1
-LEARNING_RATE = 3e-4
+EPOCHS = 20
+N_DECAY = 10
+INIT_LEARNING_RATE = 5e-3
+FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 TRAIN_BATCHES_PER_EPOCH = 1
 VAL_BATCHES_PER_EPOCH = 1
@@ -90,7 +91,7 @@ photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
 
 n_spec = spec_df.shape[0] / N_SPLITS
 n_photo = photo_df.shape[0] / N_SPLITS
-ALPHA = n_photo / n_spec
+ALPHA = 1. #n_photo / n_spec
 spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
@@ -410,7 +411,8 @@ filter_spec = eqx.tree_at(
 ################################# TRAINING ########################################
 ###################################################################################
 
-optimizer = optax.adam(LEARNING_RATE)
+lr_schedule = optax.warmup_cosine_decay_schedule(FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 2, EPOCHS-2, FINAL_LEARNING_RATE)
+optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
 loss_kwargs = {"alpha": ALPHA, "missing_target_value": MISSING_TARGET_VALUE}
@@ -487,7 +489,7 @@ def train_step(
         end_of_split,
     )
 
-
+@eqx.filter_jit
 def eval_step(
     ssvae,
     ssvae_state,
@@ -605,9 +607,6 @@ for epoch in range(EPOCHS):
             break
 
         train_batches += 1
-        print(
-            f"Train Batch {train_batches} / {expected_n_train_spec_batches}: {train_batches / expected_n_train_spec_batches *100:.2f}%"
-        )
 
     t1 = time.time()
     train_step_time += t1 - t0_epoch
@@ -631,7 +630,7 @@ for epoch in range(EPOCHS):
             train_spectroscopic_dataloader_state,
             val_photometric_dataloader_state,
             val_spectroscopic_dataloader_state,
-            end_split_condition,
+            end_of_val_split,
         ) = eval_step(
             inference_ssvae,
             input_state,
@@ -642,7 +641,6 @@ for epoch in range(EPOCHS):
             val_step_key,
         )
 
-        end_of_val_split = jnp.all(end_split_condition)
         if end_of_val_split:
             break
 
@@ -653,14 +651,11 @@ for epoch in range(EPOCHS):
 
         val_batches += 1
         t1_single = time.time()
-        print(
-            f"Val batch {val_batches} / {expected_n_val_spec_batches}: {val_batches / expected_n_val_spec_batches * 100:.2f} %. Time taken: {(t1_single - t0_single)/60:.2f} m"
-        )
 
-    train_photometric_dataloader_state.set(
+    train_photometric_dataloader_state = train_photometric_dataloader_state.set(
         train_photometric_dataloader.reset_index, jnp.array(True)
     )
-    train_spectroscopic_dataloader_state.set(
+    train_spectroscopic_dataloader_state = train_spectroscopic_dataloader_state.set(
         train_spectroscopic_dataloader.reset_index, jnp.array(True)
     )
 
@@ -679,9 +674,10 @@ for epoch in range(EPOCHS):
 
     t1_epoch = time.time()
     epoch_time += t1_epoch - t0_epoch
+    epoch_lr = lr_schedule(epoch)
 
     print(
-        f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
+        f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
         + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {epoch_train_aux[2]:.3f} - "
         + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {epoch_val_aux[2]:.3f}"
     )
