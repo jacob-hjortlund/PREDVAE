@@ -536,8 +536,6 @@ def eval_step(
         train_loss_value,
         ssvae_state,
         train_loss_aux,
-        train_target_means,
-        train_target_stds,
     ) = _val_step(
         x_train_split,
         y_train_split,
@@ -546,14 +544,12 @@ def eval_step(
         ssvae_state,
     )
 
-    val_loss_value, input_state, val_loss_aux, val_target_means, val_target_stds = (
-        _val_step(
-            x_val_split,
-            y_val_split,
-            val_step_key,
-            ssvae,
-            ssvae_state,
-        )
+    val_loss_value, input_state, val_loss_aux = _val_step(
+        x_val_split,
+        y_val_split,
+        val_step_key,
+        ssvae,
+        ssvae_state,
     )
 
     end_of_val_split = jnp.all(spectroscopic_reset_condition)
@@ -561,12 +557,8 @@ def eval_step(
     return (
         train_loss_value,
         train_loss_aux,
-        train_target_means,
-        train_target_stds,
         val_loss_value,
         val_loss_aux,
-        val_target_means,
-        val_target_stds,
         input_state,
         train_photo_dl_state,
         train_spec_dl_state,
@@ -643,12 +635,8 @@ for epoch in range(EPOCHS):
         (
             batch_train_loss,
             batch_train_aux,
-            batch_train_target_means,
-            batch_train_target_stds,
             batch_val_loss,
             batch_val_aux,
-            batch_val_target_means,
-            batch_val_target_stds,
             input_state,
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
@@ -672,11 +660,6 @@ for epoch in range(EPOCHS):
         epoch_train_aux.append(batch_train_aux)
         epoch_val_loss.append(batch_val_loss)
         epoch_val_aux.append(batch_val_aux)
-
-        if epoch % LOG_EVERY == 0:
-
-            epoch_val_target_means.append(batch_val_target_means)
-            epoch_val_target_stds.append(batch_val_target_stds)
 
         val_batches += 1
         print(f"Val Batch: {val_batches / expected_n_val_spec_batches*100:.2f} %")
