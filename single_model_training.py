@@ -47,8 +47,7 @@ N_DECAY = 10
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
-TRAIN_BATCHES_PER_EPOCH = 1
-VAL_BATCHES_PER_EPOCH = 1
+LOG_EVERY = 1
 
 USE_EARLY_STOPPING = True
 EARLY_STOPPING_PATIENCE = 10
@@ -91,7 +90,7 @@ photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
 
 n_spec = spec_df.shape[0] / N_SPLITS
 n_photo = photo_df.shape[0] / N_SPLITS
-ALPHA = 1. #n_photo / n_spec
+ALPHA = 1.0  # n_photo / n_spec
 spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
@@ -329,7 +328,7 @@ val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(RNG_KEY, 3
     val_photo_dataset,
     batch_size=PHOTOMETRIC_BATCH_SIZE,
     rng_key=val_photo_dataloader_key,
-    shuffle=SHUFFLE,
+    shuffle=False,
     drop_last=DROP_LAST,
 )
 
@@ -340,7 +339,7 @@ val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(RNG_KEY, 3
     val_spec_dataset,
     batch_size=SPECTROSCOPIC_BATCH_SIZE,
     rng_key=val_spec_dataloader_key,
-    shuffle=SHUFFLE,
+    shuffle=False,
     drop_last=DROP_LAST,
 )
 
@@ -411,7 +410,9 @@ filter_spec = eqx.tree_at(
 ################################# TRAINING ########################################
 ###################################################################################
 
-lr_schedule = optax.warmup_cosine_decay_schedule(FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 2, EPOCHS-2, FINAL_LEARNING_RATE)
+lr_schedule = optax.warmup_cosine_decay_schedule(
+    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 2, EPOCHS - 2, FINAL_LEARNING_RATE
+)
 optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
@@ -429,9 +430,6 @@ _val_step = training.make_eval_step(
     filter_spec=filter_spec,
 )
 
-# train_step = eqx.filter_jit(train_step)
-# val_step = eqx.filter_jit(val_step)
-# train_iterator = eqx.filter_jit(train_iterator)
 
 val_step_time = 0
 train_step_time = 0
@@ -439,8 +437,12 @@ epoch_time = 0
 
 train_loss = []
 train_aux = []
+train_target_means = []
+train_target_stds = []
 val_loss = []
 val_aux = []
+val_target_means = []
+val_target_stds = []
 best_val_loss = -jnp.inf
 best_val_epoch = -1
 
@@ -469,7 +471,7 @@ def train_step(
 
     end_of_split = jnp.all(spectroscopic_reset_condition)
 
-    ssvae, ssvae_state, optimizer_state, loss_value, aux = _train_step(
+    ssvae, ssvae_state, optimizer_state, loss_value, loss_aux = _train_step(
         x,
         y,
         step_key,
@@ -480,7 +482,7 @@ def train_step(
 
     return (
         loss_value,
-        aux,
+        loss_aux,
         ssvae,
         ssvae_state,
         optimizer_state,
@@ -488,6 +490,7 @@ def train_step(
         spec_dl_state,
         end_of_split,
     )
+
 
 @eqx.filter_jit
 def eval_step(
@@ -529,7 +532,13 @@ def eval_step(
         train_resampling_key,
     )
 
-    train_loss_value, ssvae_state, train_aux = _val_step(
+    (
+        train_loss_value,
+        ssvae_state,
+        train_loss_aux,
+        train_target_means,
+        train_target_stds,
+    ) = _val_step(
         x_train_split,
         y_train_split,
         train_step_key,
@@ -537,21 +546,27 @@ def eval_step(
         ssvae_state,
     )
 
-    val_loss_value, input_state, val_aux = _val_step(
-        x_val_split,
-        y_val_split,
-        val_step_key,
-        ssvae,
-        ssvae_state,
+    val_loss_value, input_state, val_loss_aux, val_target_means, val_target_stds = (
+        _val_step(
+            x_val_split,
+            y_val_split,
+            val_step_key,
+            ssvae,
+            ssvae_state,
+        )
     )
 
     end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
     return (
         train_loss_value,
-        train_aux,
+        train_loss_aux,
+        train_target_means,
+        train_target_stds,
         val_loss_value,
-        val_aux,
+        val_loss_aux,
+        val_target_means,
+        val_target_stds,
         input_state,
         train_photo_dl_state,
         train_spec_dl_state,
@@ -574,8 +589,12 @@ for epoch in range(EPOCHS):
     val_batches = 0
     epoch_train_loss = []
     epoch_train_aux = []
+    # epoch_train_target_means = []
+    # epoch_train_target_stds = []
     epoch_val_loss = []
     epoch_val_aux = []
+    epoch_val_target_means = []
+    epoch_val_target_stds = []
 
     t0_epoch = time.time()
 
@@ -623,8 +642,12 @@ for epoch in range(EPOCHS):
         (
             batch_train_loss,
             batch_train_aux,
+            batch_train_target_means,
+            batch_train_target_stds,
             batch_val_loss,
             batch_val_aux,
+            batch_val_target_means,
+            batch_val_target_stds,
             input_state,
             train_photometric_dataloader_state,
             train_spectroscopic_dataloader_state,
@@ -649,6 +672,11 @@ for epoch in range(EPOCHS):
         epoch_val_loss.append(batch_val_loss)
         epoch_val_aux.append(batch_val_aux)
 
+        if epoch % LOG_EVERY == 0:
+
+            epoch_val_target_means.append(batch_val_target_means)
+            epoch_val_target_stds.append(batch_val_target_stds)
+
         val_batches += 1
         t1_single = time.time()
 
@@ -671,6 +699,76 @@ for epoch in range(EPOCHS):
     train_aux.append(epoch_train_aux)
     val_loss.append(epoch_val_loss)
     val_aux.append(epoch_val_aux)
+
+    if epoch % LOG_EVERY == 0:
+
+        epoch_val_target_means = jnp.concatenate(epoch_val_target_means, axis=0)
+        epoch_val_target_stds = jnp.concatenate(epoch_val_target_stds, axis=0)
+
+        val_target_means.append(epoch_val_target_means)
+        val_target_stds.append(epoch_val_target_stds)
+
+        fig, ax = plt.subplots(ncols=2, figsize=(16, 8))
+
+        if epoch == 0:
+
+            ax[0].hist(epoch_val_target_means, bins=100, density=True)
+            ax[0].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
+            ax[0].set_ylabel("Density")
+
+            ax[1].hist(epoch_val_target_stds, bins=100, density=True)
+            ax[1].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
+            ax[1].set_ylabel("Density")
+
+        else:
+
+            target_means = np.array(val_target_means).T
+            target_stds = np.array(val_target_stds).T
+            n_interp = epoch // LOG_EVERY * 10
+            epochs = np.arange(0, epoch + 1, LOG_EVERY)
+            interpolated_epochs = np.linspace(0, epoch, n_interp)
+            target_means_interp = np.concatenate(
+                [
+                    np.interp(interpolated_epochs, epochs, means)
+                    for means in target_means
+                ]
+            )
+            target_stds_interp = np.concatenate(
+                [np.interp(interpolated_epochs, epochs, stds) for stds in target_stds]
+            )
+            interpolated_epochs = np.broadcast_to(
+                interpolated_epochs, (target_means.shape[0], n_interp)
+            ).ravel()
+
+            cmap = plt.colormaps["plasma"]
+            cmap = cmap.with_extremes(bad=cmap(0))
+
+            h_means, x_means, y_means = np.histogram2d(
+                interpolated_epochs, target_means_interp, bins=[int(n_interp / 2, 100)]
+            )
+
+            h_stds, x_stds, y_stds = np.histogram2d(
+                interpolated_epochs, target_stds_interp, bins=[int(n_interp / 2, 100)]
+            )
+
+            pcm_means = ax[0].pcolormesh(
+                x_means, y_means, h_means.T, cmap=cmap, norm="log", rasterized=True
+            )
+            fig.colorbar(pcm_means, ax=ax[0], label="# Count", pad=0)
+
+            pcm_stds = ax[1].pcolormesh(
+                x_stds, y_stds, h_stds.T, cmap=cmap, norm="log", rasterized=True
+            )
+            fig.colorbar(pcm_stds, ax=ax[1], label="# Count", pad=0)
+
+            ax[0].set_xlabel("Epoch")
+            ax[0].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
+
+            ax[1].set_xlabel("Epoch")
+            ax[1].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
+
+        fig.tight_layout()
+        plt.savefig(SAVE_DIR / f"target_stats_epoch_{epoch}.png")
 
     t1_epoch = time.time()
     epoch_time += t1_epoch - t0_epoch
