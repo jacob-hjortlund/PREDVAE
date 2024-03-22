@@ -49,39 +49,6 @@ def freeze_target_inputs(model, filter_spec=None, inverse=False):
     return filter_spec
 
 
-def init_target_inputs(model, key, init_value=None):
-
-    if init_value is None:
-
-        def init_fn(weight, key):
-            out, in_ = weight.shape
-            lim = 1 / math.sqrt(in_)
-            return jax.random.uniform(key, (out, in_), minval=-lim, maxval=lim)
-
-    else:
-        init_fn = lambda weight, key: jnp.ones_like(weight) * init_value
-
-    is_input_layer = lambda layer: isinstance(layer, InputLayer)
-    get_target_weights = lambda model: [
-        layer.y_weight
-        for layer in tree_leaves(model, is_leaf=is_input_layer)
-        if is_input_layer(layer)
-    ]
-    weights = get_target_weights(model)
-    new_weights = [
-        init_fn(weight, subkey)
-        for weight, subkey in zip(weights, jr.split(key, len(weights)))
-    ]
-
-    updated_model = eqx.tree_at(
-        get_target_weights,
-        model,
-        replace=new_weights,
-    )
-
-    return updated_model
-
-
 def freeze_submodule(model, submodule: str, filter_spec=None, inverse=False):
 
     get_submodule_mlp_layers = lambda model: getattr(model, submodule).mlp.layers
@@ -109,3 +76,70 @@ def freeze_submodule(model, submodule: str, filter_spec=None, inverse=False):
     )
 
     return filter_spec
+
+
+def _init_fn(weight, key):
+    shape = weight.shape
+    lim = 1 / math.sqrt(shape[-1])
+    return jax.random.uniform(key, shape, minval=-lim, maxval=lim)
+
+
+def init_target_inputs(model, key, init_value=None):
+
+    if init_value is None:
+        init_fn = _init_fn
+    else:
+        init_fn = lambda weight, key: jnp.ones_like(weight) * init_value
+
+    is_input_layer = lambda layer: isinstance(layer, InputLayer)
+    get_target_weights = lambda model: [
+        layer.y_weight
+        for layer in tree_leaves(model, is_leaf=is_input_layer)
+        if is_input_layer(layer)
+    ]
+    weights = get_target_weights(model)
+    new_weights = [
+        init_fn(weight, subkey)
+        for weight, subkey in zip(weights, jr.split(key, len(weights)))
+    ]
+
+    updated_model = eqx.tree_at(
+        get_target_weights,
+        model,
+        replace=new_weights,
+    )
+
+    return updated_model
+
+
+def init_submodule(model, submodule: str, key, init_value=None):
+
+    if init_value is None:
+        init_fn = _init_fn
+    else:
+        init_fn = lambda weight, key: jnp.ones_like(weight) * init_value
+
+    get_submodule_mlp_layers = lambda model: getattr(model, submodule).mlp.layers
+    get_submodule_weights = lambda model: [
+        layer.spectral_linear.layer.weight for layer in get_submodule_mlp_layers(model)
+    ]
+    get_submodule_biases = lambda model: [
+        layer.spectral_linear.layer.bias for layer in get_submodule_mlp_layers(model)
+    ]
+    get_submodule_params = lambda model: get_submodule_weights(
+        model
+    ) + get_submodule_biases(model)
+
+    submodule_params = get_submodule_params(model)
+    new_params = [
+        init_fn(param, subkey)
+        for param, subkey in zip(submodule_params, jr.split(key, len(submodule_params)))
+    ]
+
+    updated_model = eqx.tree_at(
+        get_submodule_params,
+        model,
+        replace=new_params,
+    )
+
+    return updated_model

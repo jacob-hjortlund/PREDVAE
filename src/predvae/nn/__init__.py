@@ -6,4 +6,5 @@ from .utils import (
     freeze_submodule,
     freeze_target_inputs,
     init_target_inputs,
+    init_submodule,
 )
