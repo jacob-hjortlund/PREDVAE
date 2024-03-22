@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "LOG_TEST"
+RUN_NAME = "E325"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -42,14 +42,14 @@ USE_SPEC_NORM = True
 # Training Config
 
 SEED = 5678
-EPOCHS = 20
+EPOCHS = 325
 N_DECAY = 10
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
-USE_EARLY_STOPPING = True
+USE_EARLY_STOPPING = False
 EARLY_STOPPING_PATIENCE = 10
 
 REDUCE_LR_FACTOR = 0.1
@@ -411,7 +411,7 @@ filter_spec = eqx.tree_at(
 ###################################################################################
 
 lr_schedule = optax.warmup_cosine_decay_schedule(
-    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 2, EPOCHS - 2, FINAL_LEARNING_RATE
+    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 5, EPOCHS - 5, FINAL_LEARNING_RATE
 )
 optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -567,7 +567,10 @@ def eval_step(
     )
 
 
-@eqx.filter_vmap(in_axes=(None, None, 0, None))
+@eqx.filter_vmap(
+    in_axes=(None, None, 0, None),
+    out_axes=(0, 0, None)
+)
 def _call_model(
     ssvae,
     ssvae_state,
@@ -621,6 +624,41 @@ def call_model(
         end_of_split,
     )
 
+@partial(jax.vmap, in_axes=(None, None, 0, 0))
+def _interp_output(interp_epochs, epochs, means, stds):
+
+    interp_means = jnp.interp(interp_epochs, epochs, means)
+    interp_stds = jnp.interp(interp_epochs, epochs, stds)
+
+    return interp_means, interp_stds
+
+@jax.jit
+def interp_output(means, stds, epoch, log_every):
+
+    target_means = target_means.T
+    target_stds = target_stds.T
+    n_interp = epoch // log_every * 2
+    epochs = jnp.arange(0, epoch+1, log_every)
+    interpolated_epochs = jnp.linspace(0, epoch, n_interp)
+    interp_means, interp_stds = _interp_output(
+        interpolated_epochs, epochs, target_means, target_stds
+    )
+    interp_means = jnp.concatenate(interp_means)
+    interp_stds = jnp.concatenate(interp_stds)
+    interpolated_epochs = jnp.broadcast_to(
+        interpolated_epochs, (target_means.shape[0], n_interp)
+    ).ravel()
+
+    h_means, x_means, y_means = np.histogram2d(
+        interpolated_epochs, interp_means, bins=[int(n_interp / 2, 100)]
+    )
+
+    h_stds, x_stds, y_stds = np.histogram2d(
+        interpolated_epochs, interp_stds, bins=[int(n_interp / 2, 100)]
+    )
+
+    return h_means, x_means, y_means, h_stds, x_stds, y_stds
+
 
 t0 = time.time()
 
@@ -673,7 +711,6 @@ for epoch in range(EPOCHS):
         train_batches += 1
 
     t1 = time.time()
-    print(f"End of train: {t1-t0_epoch}")
     train_step_time += t1 - t0_epoch
 
     inference_ssvae = eqx.nn.inference_mode(ssvae)
@@ -727,7 +764,6 @@ for epoch in range(EPOCHS):
 
     t1_val = time.time()
     val_step_time += t1_val - t0_val
-    print(f"End of val: {t1_val-t0_val}")
 
     epoch_train_loss = jnp.mean(jnp.array(epoch_train_loss), axis=0)
     epoch_train_aux = jnp.mean(jnp.array(epoch_train_aux), axis=0)
@@ -739,103 +775,85 @@ for epoch in range(EPOCHS):
     val_loss.append(epoch_val_loss)
     val_aux.append(epoch_val_aux)
 
-    if epoch % LOG_EVERY == 0:
+    # if epoch % LOG_EVERY == 0:
 
-        t0_pred = time.time()
+    #     t0_pred = time.time()
 
-        while not end_of_prediction_split:
+    #     while not end_of_prediction_split:
 
-            pred_key, epoch_val_key = jr.split(epoch_val_key)
+    #         pred_key, epoch_val_key = jr.split(epoch_val_key)
 
-            (
-                y_means,
-                y_logstds,
-                input_state,
-                val_photometric_dataloader_state,
-                val_spectroscopic_dataloader_state,
-                end_of_prediction_split,
-            ) = call_model(
-                inference_ssvae,
-                input_state,
-                val_photometric_dataloader_state,
-                val_spectroscopic_dataloader_state,
-                pred_key,
-            )
+    #         (
+    #             y_means,
+    #             y_logstds,
+    #             input_state,
+    #             val_photometric_dataloader_state,
+    #             val_spectroscopic_dataloader_state,
+    #             end_of_prediction_split,
+    #         ) = call_model(
+    #             inference_ssvae,
+    #             input_state,
+    #             val_photometric_dataloader_state,
+    #             val_spectroscopic_dataloader_state,
+    #             pred_key,
+    #         )
 
-            epoch_val_target_means.append(y_means)
-            epoch_val_target_stds.append(y_logstds)
+    #         epoch_val_target_means.append(y_means)
+    #         epoch_val_target_stds.append(y_logstds)
 
-        t1_pred = time.time()
-        prediction_step_time += t1_pred - t0_pred
-        print(f"End of prediction: {t1_pred-t0_pred}")
+    #     t1_pred = time.time()
+    #     prediction_step_time += t1_pred - t0_pred
+    #     print(f"End of prediction: {t1_pred-t0_pred}")
 
-        epoch_val_target_means = jnp.concatenate(epoch_val_target_means, axis=0)
-        epoch_val_target_stds = jnp.concatenate(epoch_val_target_stds, axis=0)
+    #     epoch_val_target_means = jnp.concatenate(epoch_val_target_means, axis=0)
+    #     epoch_val_target_stds = jnp.concatenate(epoch_val_target_stds, axis=0)
 
-        val_target_means.append(epoch_val_target_means)
-        val_target_stds.append(epoch_val_target_stds)
+    #     val_target_means.append(epoch_val_target_means)
+    #     val_target_stds.append(epoch_val_target_stds)
 
-        fig, ax = plt.subplots(ncols=2, figsize=(16, 8))
+    #     fig, ax = plt.subplots(ncols=2, figsize=(16, 8))
 
-        if epoch == 0:
+    #     if epoch == 0:
 
-            ax[0].hist(epoch_val_target_means, bins=100, density=True)
-            ax[0].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
-            ax[0].set_ylabel("Density")
+    #         print("Creating Simple Figure at Epoch 0")
+    #         ax[0].hist(epoch_val_target_means, bins=100, density=True)
+    #         ax[0].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
+    #         ax[0].set_ylabel("Density")
 
-            ax[1].hist(epoch_val_target_stds, bins=100, density=True)
-            ax[1].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
-            ax[1].set_ylabel("Density")
+    #         ax[1].hist(epoch_val_target_stds, bins=100, density=True)
+    #         ax[1].set_xlabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
+    #         ax[1].set_ylabel("Density")
 
-        else:
+    #     else:
+    #         print(f"Creating Complex Figure at Epoch {epoch}")
+    #         target_means = jnp.array(val_target_means)
+    #         target_stds = jnp.array(val_target_stds)
+            
+    #         h_means, x_means, y_means, h_stds, x_stds, y_stds = interp_output(
+    #             target_means, target_stds, epoch, LOG_EVERY
+    #         )
 
-            target_means = np.array(val_target_means).T
-            target_stds = np.array(val_target_stds).T
-            n_interp = epoch // LOG_EVERY * 10
-            epochs = np.arange(0, epoch + 1, LOG_EVERY)
-            interpolated_epochs = np.linspace(0, epoch, n_interp)
-            target_means_interp = np.concatenate(
-                [
-                    np.interp(interpolated_epochs, epochs, means)
-                    for means in target_means
-                ]
-            )
-            target_stds_interp = np.concatenate(
-                [np.interp(interpolated_epochs, epochs, stds) for stds in target_stds]
-            )
-            interpolated_epochs = np.broadcast_to(
-                interpolated_epochs, (target_means.shape[0], n_interp)
-            ).ravel()
+    #         cmap = plt.colormaps["plasma"]
+    #         cmap = cmap.with_extremes(bad=cmap(0))
 
-            cmap = plt.colormaps["plasma"]
-            cmap = cmap.with_extremes(bad=cmap(0))
+    #         pcm_means = ax[0].pcolormesh(
+    #             x_means, y_means, h_means.T, cmap=cmap, norm="log", rasterized=True
+    #         )
+    #         fig.colorbar(pcm_means, ax=ax[0], label="# Count", pad=0)
 
-            h_means, x_means, y_means = np.histogram2d(
-                interpolated_epochs, target_means_interp, bins=[int(n_interp / 2, 100)]
-            )
+    #         pcm_stds = ax[1].pcolormesh(
+    #             x_stds, y_stds, h_stds.T, cmap=cmap, norm="log", rasterized=True
+    #         )
+    #         fig.colorbar(pcm_stds, ax=ax[1], label="# Count", pad=0)
 
-            h_stds, x_stds, y_stds = np.histogram2d(
-                interpolated_epochs, target_stds_interp, bins=[int(n_interp / 2, 100)]
-            )
+    #         ax[0].set_xlabel("Epoch")
+    #         ax[0].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
 
-            pcm_means = ax[0].pcolormesh(
-                x_means, y_means, h_means.T, cmap=cmap, norm="log", rasterized=True
-            )
-            fig.colorbar(pcm_means, ax=ax[0], label="# Count", pad=0)
+    #         ax[1].set_xlabel("Epoch")
+    #         ax[1].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
 
-            pcm_stds = ax[1].pcolormesh(
-                x_stds, y_stds, h_stds.T, cmap=cmap, norm="log", rasterized=True
-            )
-            fig.colorbar(pcm_stds, ax=ax[1], label="# Count", pad=0)
-
-            ax[0].set_xlabel("Epoch")
-            ax[0].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ Mean")
-
-            ax[1].set_xlabel("Epoch")
-            ax[1].set_ylabel(r"log$_{10}(\text{z}_{\text{normed}})$ log(STD)")
-
-        fig.tight_layout()
-        plt.savefig(SAVE_DIR / f"target_stats_epoch_{epoch}.png")
+    #     fig.tight_layout()
+    #     fig.savefig(SAVE_DIR / f"target_stats_epoch_{epoch}.png")
 
     t1_epoch = time.time()
     epoch_time += t1_epoch - t0_epoch
