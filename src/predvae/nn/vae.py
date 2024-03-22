@@ -59,6 +59,7 @@ class GaussianCoder(Module):
         activation: Callable,
         key: ArrayLike,
         use_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
         **kwargs,
     ):
         super().__init__()
@@ -68,6 +69,7 @@ class GaussianCoder(Module):
             width_size=width,
             depth=depth,
             use_spectral_norm=use_spectral_norm,
+            num_power_iterations=num_power_iterations,
             key=key,
             activation=activation,
             **kwargs,

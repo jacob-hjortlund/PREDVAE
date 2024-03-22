@@ -46,6 +46,7 @@ class SpectralNormedLinear(eqx.Module):
         out_features: Union[int, Literal["scalar"]],
         use_bias: bool = True,
         use_spectral_norm: bool = True,
+        num_power_iterations: int = 1,
         *,
         key: PRNGKeyArray,
     ):
@@ -59,6 +60,7 @@ class SpectralNormedLinear(eqx.Module):
                 ),
                 weight_name="weight",
                 key=spectral_norm_key,
+                num_power_iterations=num_power_iterations,
             )
         else:
             linear = eqx.nn.Linear(
@@ -86,6 +88,7 @@ class MLP(eqx.Module):
     use_bias: bool = eqx.field(static=True)
     use_final_bias: bool = eqx.field(static=True)
     use_spectral_norm: bool = eqx.field(static=True)
+    num_power_iterations: int = eqx.field(static=True)
     in_size: Union[int, Literal["scalar"]] = eqx.field(static=True)
     out_size: Union[int, Literal["scalar"]] = eqx.field(static=True)
     width_size: Array = eqx.field(static=True, converter=jnp.asarray)
@@ -103,6 +106,7 @@ class MLP(eqx.Module):
         use_bias: bool = True,
         use_final_bias: bool = True,
         use_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
         **kwargs,
     ):
         """
@@ -143,6 +147,7 @@ class MLP(eqx.Module):
                     use_bias=use_final_bias,
                     key=keys[0],
                     use_spectral_norm=use_spectral_norm,
+                    num_power_iterations=num_power_iterations
                 )
             )
         else:
@@ -153,6 +158,7 @@ class MLP(eqx.Module):
                     use_bias=use_bias,
                     key=keys[0],
                     use_spectral_norm=use_spectral_norm,
+                    num_power_iterations=num_power_iterations
                 )
             )
             for i in range(depth - 1):
@@ -163,6 +169,7 @@ class MLP(eqx.Module):
                         use_bias=use_bias,
                         key=keys[i + 1],
                         use_spectral_norm=use_spectral_norm,
+                        num_power_iterations=num_power_iterations
                     )
                 )
             layers.append(
@@ -172,6 +179,7 @@ class MLP(eqx.Module):
                     use_bias=use_final_bias,
                     key=keys[-1],
                     use_spectral_norm=use_spectral_norm,
+                    num_power_iterations=num_power_iterations
                 )
             )
         self.layers = tuple(layers)
@@ -184,6 +192,7 @@ class MLP(eqx.Module):
         self.use_bias = use_bias
         self.use_final_bias = use_final_bias
         self.use_spectral_norm = use_spectral_norm
+        self.num_power_iterations = num_power_iterations
 
     def __call__(self, x: Array, state: eqx.nn.State) -> tuple[Array, eqx.nn.State]:
         """
