@@ -218,11 +218,7 @@ class SSVAE(Module):
     def encode(
         self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
     ):
-        x_tilde = self.encoder_input_layer(x)
-        y_tilde = self.encoder_target_layer(y)
-        _x = jnp.column_stack(
-            [jnp.atleast_2d(x_tilde), jnp.atleast_2d(y_tilde)]
-        ).squeeze()
+        _x = self.encoder_input_layer(x, y)
         z, z_pars, output_state = self.encoder(_x, input_state, rng_key)
 
         return z, z_pars, output_state
@@ -230,11 +226,7 @@ class SSVAE(Module):
     def decode(
         self, z: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
     ):
-        z_tilde = self.decoder_input_layer(z)
-        y_tilde = self.decoder_target_layer(y)
-        _z = jnp.column_stack(
-            [jnp.atleast_2d(z_tilde), jnp.atleast_2d(y_tilde)]
-        ).squeeze()
+        _z = self.decoder_input_layer(z, y)
         x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
 
         return x_hat, x_pars, output_state
