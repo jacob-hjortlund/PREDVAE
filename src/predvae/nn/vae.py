@@ -1,4 +1,5 @@
 import jax
+import math
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -9,6 +10,36 @@ from jax.typing import ArrayLike
 from src.predvae.nn.mlp import MLP
 from collections.abc import Callable
 from jax.scipy import stats as jstats
+
+
+class InputLayer(Module):
+
+    x_weight: ArrayLike
+    y_weight: ArrayLike
+    x_features: int = eqx.field(static=True)
+    y_features: int = eqx.field(static=True)
+    out_features: int = eqx.field(static=True)
+
+    def __init__(
+        self, x_features: int, y_features: int, out_features: int, key: ArrayLike
+    ):
+
+        self.x_features = x_features
+        self.y_features = y_features
+        self.out_features = out_features
+
+        x_lim = 1 / math.sqrt(x_features)
+        y_lim = 1 / math.sqrt(y_features)
+        x_key, y_key = jr.split(key)
+        self.x_weight = jr.uniform(
+            x_key, (out_features, x_features), minval=-x_lim, maxval=x_lim
+        )
+        self.y_weight = jr.uniform(
+            y_key, (out_features, y_features), minval=-y_lim, maxval=y_lim
+        )
+
+    def __call__(self, x: ArrayLike, y: ArrayLike):
+        return self.x_weight @ x + self.y_weight @ y
 
 
 class GaussianCoder(Module):
@@ -153,10 +184,8 @@ class SSVAE(Module):
     predictor: Module
     latent_prior: Module
     target_prior: Module
-    encoder_input_layer: Module
-    encoder_target_layer: Module
-    decoder_input_layer: Module
-    decoder_target_layer: Module
+    encoder_input_layer: InputLayer
+    decoder_input_layer: InputLayer
 
     def __init__(
         self,
@@ -166,9 +195,7 @@ class SSVAE(Module):
         latent_prior: Module,
         target_prior: Module,
         encoder_input_layer: Module = eqx.nn.Identity(),
-        encoder_target_layer: Module = eqx.nn.Identity(),
         decoder_input_layer: Module = eqx.nn.Identity(),
-        decoder_target_layer: Module = eqx.nn.Identity(),
         *args,
         **kwargs,
     ):
@@ -179,9 +206,7 @@ class SSVAE(Module):
         self.latent_prior = latent_prior
         self.target_prior = target_prior
         self.encoder_input_layer = encoder_input_layer
-        self.encoder_target_layer = encoder_target_layer
         self.decoder_input_layer = decoder_input_layer
-        self.decoder_target_layer = decoder_target_layer
 
     def predict(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
         y, y_pars, output_state = self.predictor(x, input_state, rng_key)
