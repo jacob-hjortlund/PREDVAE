@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "PRETRAIN_VAE"
+RUN_NAME = "SSVAE"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -46,7 +46,7 @@ N_LAYERS = 3
 
 SEED = 5678
 EPOCHS = 20
-N_DECAY = 10
+WARMUP_EPOCHS = 5
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
@@ -439,8 +439,10 @@ ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(
 ################################# TRAINING ########################################
 ###################################################################################
 
+filter_spec = tree_map(lambda _: True, ssvae)
+
 lr_schedule = optax.warmup_cosine_decay_schedule(
-    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 5, EPOCHS - 5, FINAL_LEARNING_RATE
+    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, WARMUP_EPOCHS, EPOCHS - WARMUP_EPOCHS, FINAL_LEARNING_RATE
 )
 optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -898,6 +900,7 @@ for epoch in range(EPOCHS):
         best_val_loss = epoch_val_loss
         best_val_epoch = epoch
         training.save(SAVE_DIR / "best_model.pkl", ssvae)
+        training.save(SAVE_DIR / "best_model_state.pkl", input_state)
 
     if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
         print(f"Early stopping at epoch {epoch}")
@@ -917,6 +920,8 @@ print(
 )
 
 training.save(SAVE_DIR / "final_model.pkl", ssvae)
+training.save(SAVE_DIR / "final_model_state.pkl", input_state)
+
 
 train_losses = jnp.asarray(train_loss)
 val_losses = jnp.asarray(val_loss)

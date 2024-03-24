@@ -46,7 +46,7 @@ N_LAYERS = 3
 
 SEED = 5678
 EPOCHS = 20
-N_DECAY = 10
+WARMUP_EPOCHS = 5
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
@@ -448,7 +448,7 @@ ssvae = nn.init_target_inputs(ssvae, RNG_KEY, init_value=0.0)
 ssvae = nn.init_submodule(ssvae, "predictor", RNG_KEY, init_value=0.0)
 
 lr_schedule = optax.warmup_cosine_decay_schedule(
-    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 5, EPOCHS - 5, FINAL_LEARNING_RATE
+    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, WARMUP_EPOCHS, EPOCHS - WARMUP_EPOCHS, FINAL_LEARNING_RATE
 )
 optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
