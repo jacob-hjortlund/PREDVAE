@@ -143,3 +143,22 @@ def init_submodule(model, submodule: str, key, init_value=None):
     )
 
     return updated_model
+
+
+def set_submodule_inference_mode(model, submodule: str, value: bool):
+
+    get_submodule = lambda model: getattr(model, submodule)
+    has_inference = lambda leaf: hasattr(leaf, "inference")
+    where = lambda model: [
+        x.inference
+        for x in tree_leaves(get_submodule(model), is_leaf=has_inference)
+        if has_inference(x)
+    ]
+
+    updated_model = eqx.tree_at(
+        where,
+        model,
+        replace_fn=lambda _: value,
+    )
+
+    return updated_model

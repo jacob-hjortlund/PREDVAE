@@ -7,4 +7,5 @@ from .utils import (
     freeze_target_inputs,
     init_target_inputs,
     init_submodule,
+    set_submodule_inference_mode,
 )
