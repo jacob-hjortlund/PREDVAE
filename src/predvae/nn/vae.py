@@ -39,7 +39,7 @@ class InputLayer(Module):
         )
 
     def __call__(self, x: ArrayLike, y: ArrayLike):
-        return self.x_weight @ x + self.y_weight @ y
+        return self.x_weight @ x + self.y_weight @ jnp.atleast_1d(y)
 
 
 class GaussianCoder(Module):
