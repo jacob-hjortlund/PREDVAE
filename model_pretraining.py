@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_TEST_SCALED_MEAN"
+RUN_NAME = "PRETRAIN_SSVAE_SCALED_MEAN"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -53,8 +53,8 @@ FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
-PRETRAIN_VAE = False
-PRETRAIN_PREDICTOR = False
+PRETRAIN_VAE = True
+PRETRAIN_PREDICTOR = True
 TRAIN_FULL_MODEL = True
 
 USE_EARLY_STOPPING = False
@@ -94,11 +94,11 @@ photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
 
 n_spec = spec_df.shape[0] / N_SPLITS
 n_photo = photo_df.shape[0] / N_SPLITS
-ALPHA = n_photo / n_spec
 spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
 SPECTROSCOPIC_BATCH_SIZE = BATCH_SIZE - PHOTOMETRIC_BATCH_SIZE
+ALPHA = PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE
 batch_size_ratio = SPECTROSCOPIC_BATCH_SIZE / (
     SPECTROSCOPIC_BATCH_SIZE + PHOTOMETRIC_BATCH_SIZE
 )
@@ -728,8 +728,8 @@ if PRETRAIN_VAE:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1070,8 +1070,8 @@ if PRETRAIN_PREDICTOR:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1165,7 +1165,7 @@ if TRAIN_FULL_MODEL:
     optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
     loss_kwargs = {
-        "alpha": PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE,
+        "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
         "use_target": True,
         "vae_factor": 1.0,
