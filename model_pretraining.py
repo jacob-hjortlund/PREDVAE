@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_TEST_MEAN"
+RUN_NAME = "SSVAE_TEST_SCALED_MEAN"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -1165,7 +1165,7 @@ if TRAIN_FULL_MODEL:
     optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
     loss_kwargs = {
-        "alpha": ALPHA,
+        "alpha": PHOTOMETRIC_BATCH_SIZE,
         "missing_target_value": MISSING_TARGET_VALUE,
         "use_target": True,
         "vae_factor": 1.0,

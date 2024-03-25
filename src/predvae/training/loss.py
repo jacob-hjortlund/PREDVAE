@@ -273,7 +273,7 @@ def ssvae_loss(
     Returns:
         Module: Batch loss
     """
-
+    
     model = eqx.combine(free_params, frozen_params)
 
     vmapped_sample_loss = vmap(
@@ -353,7 +353,7 @@ def ssvae_loss(
             batch_unsupervised_reconstruction_log_prob,
             batch_supervised_loss,
             batch_supervised_target_log_prob_loss,
-            # -alpha * batch_supervised_target_log_prob,
+            #-alpha * batch_supervised_target_log_prob,
             batch_supervised_target_log_prob,
             batch_supervised_target_log_prior,
             batch_supervised_latent_log_prior,
