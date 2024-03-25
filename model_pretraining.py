@@ -769,7 +769,7 @@ if PRETRAIN_VAE:
     pretrained_vae_train_auxes = jnp.asarray(train_aux)
     pretrained_vae_val_auxes = jnp.asarray(val_aux)
 
-    np.save(SAVE_DIR / "pretrain_vae_losses.npy", pretrained_vae_train_losses)
+    np.save(SAVE_DIR / "pretrain_vae_train_losses.npy", pretrained_vae_train_losses)
     np.save(SAVE_DIR / "pretrain_vae_val_losses.npy", pretrained_vae_val_losses)
     np.save(SAVE_DIR / "pretrain_vae_train_auxes.npy", pretrained_vae_train_auxes)
     np.save(SAVE_DIR / "pretrain_vae_val_auxes.npy", pretrained_vae_val_auxes)
@@ -1109,7 +1109,8 @@ if PRETRAIN_PREDICTOR:
     pretrained_predictor_val_auxes = jnp.asarray(val_aux)
 
     np.save(
-        SAVE_DIR / "pretrain_predictor_losses.npy", pretrained_predictor_train_losses
+        SAVE_DIR / "pretrain_predictor_train_losses.npy",
+        pretrained_predictor_train_losses,
     )
     np.save(
         SAVE_DIR / "pretrain_predictor_val_losses.npy", pretrained_predictor_val_losses
