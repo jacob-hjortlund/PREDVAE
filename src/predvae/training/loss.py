@@ -121,7 +121,17 @@ def _supervised_sample_loss(
         latent_log_prob - latent_log_prior - target_log_prior - reconstruction_log_prob
     )
 
-    loss = jnp.array([-9999.0, supervised_loss, target_log_prob])
+    loss = jnp.array(
+        [
+            -9999.0,
+            supervised_loss,
+            target_log_prob,
+            target_log_prior,
+            latent_log_prior,
+            latent_log_prob,
+            reconstruction_log_prob,
+        ]
+    )
 
     return loss, decoder_state
 
@@ -163,7 +173,17 @@ def _unsupervised_sample_loss(
         - reconstruction_log_prob
     )
 
-    loss = jnp.array([unsupervised_loss, -9999.0, -9999.0])
+    loss = jnp.array(
+        [
+            unsupervised_loss,
+            0.0,
+            target_log_prob,
+            target_log_prior,
+            latent_log_prior,
+            latent_log_prob,
+            reconstruction_log_prob,
+        ]
+    )
 
     return loss, decoder_state
 
@@ -271,31 +291,73 @@ def ssvae_loss(
         target_transform,
         use_target,
     )
+
     batch_unsupervised_loss = vae_factor * jnp.mean(
-        loss_components[:, 0], where=loss_components[:, 0] != -9999.0
+        loss_components[:, 0], where=y.squeeze() != missing_target_value
     )
+    batch_unsupervised_target_log_prob = jnp.mean(
+        loss_components[:, 2], where=y.squeeze() != missing_target_value
+    )
+    batch_unsupervised_target_log_prior = jnp.mean(
+        loss_components[:, 3], where=y.squeeze() != missing_target_value
+    )
+    batch_unsupervised_latent_log_prior = jnp.mean(
+        loss_components[:, 4], where=y.squeeze() != missing_target_value
+    )
+    batch_unsupervised_latent_log_prob = jnp.mean(
+        loss_components[:, 5], where=y.squeeze() != missing_target_value
+    )
+    batch_unsupervised_reconstruction_log_prob = jnp.mean(
+        loss_components[:, 6], where=y.squeeze() != missing_target_value
+    )
+
     batch_supervised_loss = vae_factor * jnp.mean(
-        loss_components[:, 1], where=loss_components[:, 1] != -9999.0
+        loss_components[:, 1], where=y.squeeze() == missing_target_value
     )
-    batch_target_loss = -alpha * jnp.mean(
-        loss_components[:, 2], where=loss_components[:, 2] != -9999.0
+    batch_supervised_target_log_prob = jnp.mean(
+        loss_components[:, 2], where=y.squeeze() == missing_target_value
+    )
+    batch_supervised_target_log_prior = jnp.mean(
+        loss_components[:, 3], where=y.squeeze() == missing_target_value
+    )
+    batch_supervised_latent_log_prior = jnp.mean(
+        loss_components[:, 4], where=y.squeeze() == missing_target_value
+    )
+    batch_supervised_latent_log_prob = jnp.mean(
+        loss_components[:, 5], where=y.squeeze() == missing_target_value
+    )
+    batch_supervised_reconstruction_log_prob = jnp.mean(
+        loss_components[:, 6], where=y.squeeze() == missing_target_value
     )
 
     sum_array = jnp.asarray(
-        [batch_unsupervised_loss, batch_supervised_loss, batch_target_loss]
+        [
+            batch_unsupervised_loss,
+            batch_supervised_loss,
+            -alpha * batch_supervised_target_log_prob,
+        ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
+
+    aux_values = jnp.array(
+        [
+            batch_unsupervised_target_log_prob,
+            batch_unsupervised_target_log_prior,
+            batch_unsupervised_latent_log_prior,
+            batch_unsupervised_latent_log_prob,
+            batch_unsupervised_reconstruction_log_prob,
+            batch_supervised_target_log_prob,
+            batch_supervised_target_log_prior,
+            batch_supervised_latent_log_prior,
+            batch_supervised_latent_log_prob,
+            batch_supervised_reconstruction_log_prob,
+        ]
+    )
 
     return (
         batch_loss,
         (
-            jnp.array(
-                [
-                    batch_unsupervised_loss,
-                    batch_supervised_loss,
-                    batch_target_loss,
-                ]
-            ),
+            aux_values,
             output_state,
         ),
     )

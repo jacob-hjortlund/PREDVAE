@@ -728,8 +728,8 @@ if PRETRAIN_VAE:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1070,8 +1070,8 @@ if PRETRAIN_PREDICTOR:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1425,8 +1425,8 @@ if TRAIN_FULL_MODEL:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
