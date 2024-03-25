@@ -83,7 +83,7 @@ def gaussian_vae_loss(
 
     model = eqx.combine(free_params, frozen_params)
     loss = vmap(_sample_loss, in_axes=(None, 0, None))(model, x, rng_key)
-    batch_loss = jnp.mean(loss)
+    batch_loss = jnp.sum(loss)
 
     return batch_loss, jnp.array([jnp.nan])
 
@@ -292,41 +292,41 @@ def ssvae_loss(
         use_target,
     )
 
-    batch_unsupervised_loss = vae_factor * jnp.mean(
+    batch_unsupervised_loss = vae_factor * jnp.sum(
         loss_components[:, 0], where=y.squeeze() != missing_target_value
     )
-    batch_unsupervised_target_log_prob = jnp.mean(
+    batch_unsupervised_target_log_prob = jnp.sum(
         loss_components[:, 2], where=y.squeeze() != missing_target_value
     )
-    batch_unsupervised_target_log_prior = jnp.mean(
+    batch_unsupervised_target_log_prior = jnp.sum(
         loss_components[:, 3], where=y.squeeze() != missing_target_value
     )
-    batch_unsupervised_latent_log_prior = jnp.mean(
+    batch_unsupervised_latent_log_prior = jnp.sum(
         loss_components[:, 4], where=y.squeeze() != missing_target_value
     )
-    batch_unsupervised_latent_log_prob = jnp.mean(
+    batch_unsupervised_latent_log_prob = jnp.sum(
         loss_components[:, 5], where=y.squeeze() != missing_target_value
     )
-    batch_unsupervised_reconstruction_log_prob = jnp.mean(
+    batch_unsupervised_reconstruction_log_prob = jnp.sum(
         loss_components[:, 6], where=y.squeeze() != missing_target_value
     )
 
-    batch_supervised_loss = vae_factor * jnp.mean(
+    batch_supervised_loss = vae_factor * jnp.sum(
         loss_components[:, 1], where=y.squeeze() == missing_target_value
     )
-    batch_supervised_target_log_prob = jnp.mean(
+    batch_supervised_target_log_prob = jnp.sum(
         loss_components[:, 2], where=y.squeeze() == missing_target_value
     )
-    batch_supervised_target_log_prior = jnp.mean(
+    batch_supervised_target_log_prior = jnp.sum(
         loss_components[:, 3], where=y.squeeze() == missing_target_value
     )
-    batch_supervised_latent_log_prior = jnp.mean(
+    batch_supervised_latent_log_prior = jnp.sum(
         loss_components[:, 4], where=y.squeeze() == missing_target_value
     )
-    batch_supervised_latent_log_prob = jnp.mean(
+    batch_supervised_latent_log_prob = jnp.sum(
         loss_components[:, 5], where=y.squeeze() == missing_target_value
     )
-    batch_supervised_reconstruction_log_prob = jnp.mean(
+    batch_supervised_reconstruction_log_prob = jnp.sum(
         loss_components[:, 6], where=y.squeeze() == missing_target_value
     )
 
