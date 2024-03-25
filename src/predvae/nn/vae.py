@@ -95,6 +95,71 @@ class GaussianCoder(Module):
         return z, (mu, log_sigma), output_state
 
 
+class GaussianMixtureCoder(Module):
+    mlp: Module
+    input_size: int = eqx.field(static=True)
+    output_size: int = eqx.field(static=True)
+    width: ArrayLike = eqx.field(static=True, converter=jnp.asarray)
+    depth: int = eqx.field(static=True)
+    num_components: int = eqx.field(static=True)
+    activation: Callable
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        width: ArrayLike,
+        depth: int,
+        num_components: int,
+        activation: Callable,
+        key: ArrayLike,
+        use_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
+    ):
+        super().__init__()
+        self.mlp = MLP(
+            in_size=input_size,
+            out_size=(1 + 2 * output_size) * num_components,
+            width_size=width,
+            depth=depth,
+            key=key,
+            activation=activation,
+            use_spectral_norm=use_spectral_norm,
+            num_power_iterations=num_power_iterations,
+        )
+        self.input_size = input_size
+        self.output_size = output_size
+        self.width = width
+        self.depth = depth
+        self.num_components = num_components
+        self.activation = activation
+
+    def sample(self, logits, mu, log_sigma, rng_key):
+
+        categorical_key, normal_key = jr.split(rng_key)
+        idx = jr.categorical(categorical_key, logits)
+        mu, log_sigma = mu[..., idx], log_sigma[..., idx]
+        z = mu + jnp.exp(log_sigma) * jr.normal(normal_key, mu.shape)
+
+        return z
+
+    def log_prob(self, x, logits, mu, log_sigma):
+        log_normals = jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma))
+        log_probs = jax.nn.log_softmax(logits)
+        return jax.scipy.special.logsumexp(log_probs + log_normals, axis=-1)
+
+    def __call__(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+        output, output_state = self.mlp(x, input_state)
+        logits = output[..., : self.num_components]
+        mu = output[
+            ..., self.num_components : self.output_size * self.num_components * 2
+        ]
+        log_sigma = output[..., self.output_size * self.num_components * 2 :]
+        z = self.sample(logits, mu, log_sigma, rng_key)
+
+        return z, (logits, mu, log_sigma), output_state
+
+
 class CategoricalCoder(Module):
     mlp: Module
     input_size: int = eqx.field(static=True)
