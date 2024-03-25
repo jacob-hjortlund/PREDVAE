@@ -1165,7 +1165,7 @@ if TRAIN_FULL_MODEL:
     optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
     loss_kwargs = {
-        "alpha": PHOTOMETRIC_BATCH_SIZE,
+        "alpha": PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE,
         "missing_target_value": MISSING_TARGET_VALUE,
         "use_target": True,
         "vae_factor": 1.0,

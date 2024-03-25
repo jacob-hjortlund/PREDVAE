@@ -273,7 +273,7 @@ def ssvae_loss(
     Returns:
         Module: Batch loss
     """
-    
+
     model = eqx.combine(free_params, frozen_params)
 
     vmapped_sample_loss = vmap(
@@ -292,45 +292,49 @@ def ssvae_loss(
         use_target,
     )
 
-    batch_unsupervised_loss = vae_factor * jnp.sum(
-        loss_components[:, 0], where=y.squeeze() == missing_target_value
+    batch_size = x.shape[0]
+    idx_missing = y.squeeze() == missing_target_value
+    idx_not_missing = y.squeeze() != missing_target_value
+
+    batch_unsupervised_loss = (
+        vae_factor * jnp.sum(loss_components[:, 0], where=idx_missing) / batch_size
     )
-    batch_unsupervised_target_log_prob = jnp.sum(
-        loss_components[:, 2], where=y.squeeze() == missing_target_value
+    batch_unsupervised_target_log_prob = (
+        jnp.sum(loss_components[:, 2], where=idx_missing) / batch_size
     )
-    batch_unsupervised_target_log_prior = jnp.sum(
-        loss_components[:, 3], where=y.squeeze() == missing_target_value
+    batch_unsupervised_target_log_prior = (
+        jnp.sum(loss_components[:, 3], where=idx_missing) / batch_size
     )
-    batch_unsupervised_latent_log_prior = jnp.sum(
-        loss_components[:, 4], where=y.squeeze() == missing_target_value
+    batch_unsupervised_latent_log_prior = (
+        jnp.sum(loss_components[:, 4], where=idx_missing) / batch_size
     )
-    batch_unsupervised_latent_log_prob = jnp.sum(
-        loss_components[:, 5], where=y.squeeze() == missing_target_value
+    batch_unsupervised_latent_log_prob = (
+        jnp.sum(loss_components[:, 5], where=idx_missing) / batch_size
     )
-    batch_unsupervised_reconstruction_log_prob = jnp.sum(
-        loss_components[:, 6], where=y.squeeze() == missing_target_value
+    batch_unsupervised_reconstruction_log_prob = (
+        jnp.sum(loss_components[:, 6], where=idx_missing) / batch_size
     )
 
-    batch_supervised_loss = vae_factor * jnp.sum(
-        loss_components[:, 1], where=y.squeeze() != missing_target_value
+    batch_supervised_loss = (
+        vae_factor * jnp.sum(loss_components[:, 1], where=idx_not_missing) / batch_size
     )
-    batch_supervised_target_log_prob_loss = -alpha * jnp.mean(
-        loss_components[:, 2], where=y.squeeze() != missing_target_value
+    batch_supervised_target_log_prob_loss = (
+        -alpha * jnp.mean(loss_components[:, 2], where=idx_not_missing) / batch_size
     )
-    batch_supervised_target_log_prob = jnp.sum(
-        loss_components[:, 2], where=y.squeeze() != missing_target_value
+    batch_supervised_target_log_prob = (
+        jnp.sum(loss_components[:, 2], where=idx_not_missing) / batch_size
     )
-    batch_supervised_target_log_prior = jnp.sum(
-        loss_components[:, 3], where=y.squeeze() != missing_target_value
+    batch_supervised_target_log_prior = (
+        jnp.sum(loss_components[:, 3], where=idx_not_missing) / batch_size
     )
-    batch_supervised_latent_log_prior = jnp.sum(
-        loss_components[:, 4], where=y.squeeze() != missing_target_value
+    batch_supervised_latent_log_prior = (
+        jnp.sum(loss_components[:, 4], where=idx_not_missing) / batch_size
     )
-    batch_supervised_latent_log_prob = jnp.sum(
-        loss_components[:, 5], where=y.squeeze() != missing_target_value
+    batch_supervised_latent_log_prob = (
+        jnp.sum(loss_components[:, 5], where=idx_not_missing) / batch_size
     )
-    batch_supervised_reconstruction_log_prob = jnp.sum(
-        loss_components[:, 6], where=y.squeeze() != missing_target_value
+    batch_supervised_reconstruction_log_prob = (
+        jnp.sum(loss_components[:, 6], where=idx_not_missing) / batch_size
     )
 
     sum_array = jnp.asarray(
@@ -353,7 +357,7 @@ def ssvae_loss(
             batch_unsupervised_reconstruction_log_prob,
             batch_supervised_loss,
             batch_supervised_target_log_prob_loss,
-            #-alpha * batch_supervised_target_log_prob,
+            # -alpha * batch_supervised_target_log_prob,
             batch_supervised_target_log_prob,
             batch_supervised_target_log_prior,
             batch_supervised_latent_log_prior,
