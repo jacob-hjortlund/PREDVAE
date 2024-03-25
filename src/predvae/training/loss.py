@@ -314,6 +314,9 @@ def ssvae_loss(
     batch_supervised_loss = vae_factor * jnp.sum(
         loss_components[:, 1], where=y.squeeze() == missing_target_value
     )
+    batch_supervised_target_log_prob_loss = -alpha * jnp.mean(
+        loss_components[:, 2], where=y.squeeze() == missing_target_value
+    )
     batch_supervised_target_log_prob = jnp.sum(
         loss_components[:, 2], where=y.squeeze() == missing_target_value
     )
@@ -334,18 +337,23 @@ def ssvae_loss(
         [
             batch_unsupervised_loss,
             batch_supervised_loss,
-            -alpha * batch_supervised_target_log_prob,
+            batch_supervised_target_log_prob_loss
+            #- alpha * batch_supervised_target_log_prob,
         ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
 
     aux_values = jnp.array(
         [
+            batch_unsupervised_loss,
             batch_unsupervised_target_log_prob,
             batch_unsupervised_target_log_prior,
             batch_unsupervised_latent_log_prior,
             batch_unsupervised_latent_log_prob,
             batch_unsupervised_reconstruction_log_prob,
+            batch_supervised_loss,
+            batch_supervised_target_log_prob_loss,
+            #-alpha * batch_supervised_target_log_prob,
             batch_supervised_target_log_prob,
             batch_supervised_target_log_prior,
             batch_supervised_latent_log_prior,

@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "PRETRAIN_SSVAE"
+RUN_NAME = "SSVAE_TEST_MEAN"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
@@ -46,8 +46,8 @@ N_LAYERS = 3
 # Training Config
 
 SEED = 5678
-EPOCHS = 100
-WARMUP_EPOCHS = 5
+EPOCHS = 10
+WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
@@ -1425,8 +1425,8 @@ if TRAIN_FULL_MODEL:
 
         print(
             f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[1]:.3f} - TT Loss: {-ALPHA * epoch_train_aux[2]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[1]:.3f} - VT Loss: {-ALPHA * epoch_val_aux[2]:.3f}"
+            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
+            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
