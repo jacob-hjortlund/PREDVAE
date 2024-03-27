@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "PRETRAINED_SSVAE_L5_M3"
+RUN_NAME = "SSVAE_L5_M3" #"VAE_B1000_L5"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
@@ -48,7 +48,7 @@ USE_V2 = False
 # Training Config
 
 SEED = 5678
-EPOCHS = 150
+EPOCHS = 450
 WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
@@ -510,7 +510,7 @@ if PRETRAIN_VAE:
         ssvae, "decoder", freeze_x=False, freeze_y=True, filter_spec=filter_spec
     )
     ssvae = nn.init_submodule_inputs(
-        ssvae, "decoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+        ssvae, "decoder", RNG_KEY, init_x=False, init_y=True, init_value=0.0
     )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", True)
 
@@ -523,7 +523,7 @@ if PRETRAIN_VAE:
             ssvae, "encoder", freeze_x=False, freeze_y=True, filter_spec=filter_spec
         )
         ssvae = nn.init_submodule_inputs(
-            ssvae, "encoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+            ssvae, "encoder", RNG_KEY, init_x=False, init_y=True, init_value=0.0
         )
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
@@ -862,7 +862,7 @@ if PRETRAIN_PREDICTOR:
     )
 
     ssvae = nn.init_submodule_inputs(
-        ssvae, "decoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+        ssvae, "decoder", RNG_KEY, init_x=False, init_y=True, init_value=0.0
     )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", False)
     ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", True)
@@ -1241,7 +1241,7 @@ if TRAIN_FULL_MODEL:
 
     init_key, RNG_KEY = jr.split(RNG_KEY)
     ssvae = nn.init_submodule_inputs(
-        ssvae, "decoder", init_x=True, init_y=True, init_key
+        ssvae, "decoder", init_key, init_x=True, init_y=True
     )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", False)
     ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", False)
@@ -1259,7 +1259,7 @@ if TRAIN_FULL_MODEL:
             filter_spec=filter_spec, inverse=True
         )
         ssvae = nn.init_submodule_inputs(
-            ssvae, "encoder", init_x=True, init_y=True, init_key
+            ssvae, "encoder", init_key, init_x=True, init_y=True
         )
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
