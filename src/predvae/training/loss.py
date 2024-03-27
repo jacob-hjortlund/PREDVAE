@@ -93,7 +93,6 @@ def _supervised_sample_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    use_target: bool,
     rng_key: ArrayLike,
 ):
     encoder_key, decoder_key = jr.split(rng_key, 2)
@@ -101,16 +100,8 @@ def _supervised_sample_loss(
     z, z_pars, encoder_state = model.encode(x, y, predictor_state, encoder_key)
     x_hat, x_pars, decoder_state = model.decode(z, y, encoder_state, decoder_key)
 
-    target_log_prior = cond(
-        use_target,
-        lambda *_: model.target_prior(y),
-        lambda *_: jnp.array(0.0),
-    )
-    target_log_prob = cond(
-        use_target,
-        lambda *_: model.predictor.log_prob(y, *y_pars),
-        lambda *_: jnp.array(0.0),
-    )
+    target_log_prior = model.target_prior(y)
+    target_log_prob = model.predictor.log_prob(y, *y_pars)
 
     latent_log_prior = model.latent_prior(z)
     latent_log_prob = model.encoder.log_prob(z, *z_pars)
@@ -135,7 +126,6 @@ def _unsupervised_sample_loss(
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
-    use_target: bool,
     rng_key: ArrayLike,
 ):
     encoder_key, predictor_key, decoder_key = jr.split(rng_key, 3)
@@ -143,16 +133,8 @@ def _unsupervised_sample_loss(
     z, z_pars, encoder_state = model.encode(x, y, predictor_state, encoder_key)
     x_hat, x_pars, decoder_state = model.decode(z, y, encoder_state, decoder_key)
 
-    target_log_prior = cond(
-        use_target,
-        lambda *_: model.target_prior(y),
-        lambda *_: jnp.array(0.0),
-    )
-    target_log_prob = cond(
-        use_target,
-        lambda *_: model.predictor.log_prob(y, *y_pars),
-        lambda *_: jnp.array(0.0),
-    )
+    target_log_prior = model.target_prior(y)
+    target_log_prob = model.predictor.log_prob(y, *y_pars)
 
     latent_log_prior = model.latent_prior(z)
     latent_log_prob = model.encoder.log_prob(z, *z_pars)
@@ -180,7 +162,6 @@ def _sample_loss(
     rng_key: ArrayLike,
     missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
-    use_target: bool = True,
 ):
 
     unsupervised_loss_args = [
@@ -188,7 +169,6 @@ def _sample_loss(
         input_state,
         x,
         target_transform(y),
-        use_target,
         rng_key,
     ]
     (dynamic_unsupervised_loss, dynamic_unsupervised_state), (
@@ -204,7 +184,6 @@ def _sample_loss(
         unsupervised_state,
         x,
         target_transform(y),
-        use_target,
         rng_key,
     ]
     (dynamic_supervised_loss, dynamic_supervised_state), (
@@ -240,9 +219,9 @@ def ssvae_loss(
     alpha: ArrayLike,
     beta: int = 1.0,
     vae_factor: int = 1.0,
+    predictor_factor: int = 1.0,
     missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
-    use_target: bool = True,
 ) -> Module:
     """
     Batch loss function for a semi-supervised VAE classifier.
@@ -274,7 +253,6 @@ def ssvae_loss(
         rng_key,
         missing_target_value,
         target_transform,
-        use_target,
     )
 
     batch_size = x.shape[0]
@@ -289,19 +267,17 @@ def ssvae_loss(
         reconstruction_log_prob,
     ) = loss_components.T
 
-    unsupervised_losses = (
-        beta * (latent_log_prob - latent_log_prior)
-        + target_log_prob - target_log_prior
-        - reconstruction_log_prob
-    )
-    supervised_losses = (
-        beta * (latent_log_prob - latent_log_prior)
-        - target_log_prior
-        - reconstruction_log_prob
+    vae_loss = vae_factor * (
+        beta * (latent_log_prob - latent_log_prior) - reconstruction_log_prob
     )
 
+    unsupervised_losses = vae_loss + predictor_factor * (
+        target_log_prob - target_log_prior
+    )
+    supervised_losses = vae_loss - predictor_factor * target_log_prior
+
     batch_unsupervised_loss = (
-        vae_factor * jnp.sum(unsupervised_losses, where=idx_missing) / batch_size
+        jnp.sum(unsupervised_losses, where=idx_missing) / batch_size
     )
     batch_unsupervised_target_log_prob = (
         jnp.sum(target_log_prior, where=idx_missing) / batch_size
@@ -320,7 +296,7 @@ def ssvae_loss(
     )
 
     batch_supervised_loss = (
-        vae_factor * jnp.sum(supervised_losses, where=idx_not_missing) / batch_size
+        jnp.sum(supervised_losses, where=idx_not_missing) / batch_size
     )
     batch_supervised_target_log_prob_loss = (
         -alpha * jnp.mean(target_log_prob, where=idx_not_missing) / batch_size
