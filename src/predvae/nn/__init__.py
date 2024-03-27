@@ -6,7 +6,7 @@ from .vae import (
     CategoricalCoder,
     VAE,
     SSVAE,
-    SSVAEv2
+    SSVAEv2,
     InputLayer,
 )
 from .utils import (
