@@ -33,9 +33,9 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "PRETRAIN_SSVAE_SCALED_MEAN"
+RUN_NAME = "VAE_B1_L5"
 INPUT_SIZE = 27
-LATENT_SIZE = 15
+LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
 NUM_MIXTURE_COMPONENTS = 3
 USE_SPEC_NORM = True
@@ -46,7 +46,7 @@ N_LAYERS = 3
 # Training Config
 
 SEED = 5678
-EPOCHS = 10
+EPOCHS = 20
 WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
@@ -54,8 +54,8 @@ BATCH_SIZE = 1024
 LOG_EVERY = 1
 
 PRETRAIN_VAE = True
-PRETRAIN_PREDICTOR = True
-TRAIN_FULL_MODEL = True
+PRETRAIN_PREDICTOR = False
+TRAIN_FULL_MODEL = False
 
 USE_EARLY_STOPPING = False
 EARLY_STOPPING_PATIENCE = 10
@@ -98,7 +98,7 @@ spec_ratio = n_spec / (n_spec + n_photo)
 
 PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
 SPECTROSCOPIC_BATCH_SIZE = BATCH_SIZE - PHOTOMETRIC_BATCH_SIZE
-ALPHA = PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE
+ALPHA = (PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE) * SPECTROSCOPIC_BATCH_SIZE
 batch_size_ratio = SPECTROSCOPIC_BATCH_SIZE / (
     SPECTROSCOPIC_BATCH_SIZE + PHOTOMETRIC_BATCH_SIZE
 )
@@ -727,9 +727,9 @@ if PRETRAIN_VAE:
         epoch_lr = lr_schedule(epoch)
 
         print(
-            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
+            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.5e} - Train Loss: {epoch_train_loss:.5e} - Val Loss: {epoch_val_loss:.5e} - "
+            + f"TU Loss: {epoch_train_aux[0]:.5e} - TS Loss: {epoch_train_aux[6]:.5e} - TT Loss: {epoch_train_aux[7]:.5e} - "
+            + f"VU Loss: {epoch_val_aux[0]:.5e} - VS Loss: {epoch_val_aux[6]:.5e} - VT Loss: {epoch_val_aux[7]:.5e}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1069,9 +1069,9 @@ if PRETRAIN_PREDICTOR:
         epoch_lr = lr_schedule(epoch)
 
         print(
-            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
+            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.5e} - Train Loss: {epoch_train_loss:.5e} - Val Loss: {epoch_val_loss:.5e} - "
+            + f"TU Loss: {epoch_train_aux[0]:.5e} - TS Loss: {epoch_train_aux[6]:.5e} - TT Loss: {epoch_train_aux[7]:.5e} - "
+            + f"VU Loss: {epoch_val_aux[0]:.5e} - VS Loss: {epoch_val_aux[6]:.5e} - VT Loss: {epoch_val_aux[7]:.5e}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
@@ -1424,9 +1424,9 @@ if TRAIN_FULL_MODEL:
         epoch_lr = lr_schedule(epoch)
 
         print(
-            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.2e} - Train Loss: {epoch_train_loss:.3f} - Val Loss: {epoch_val_loss:.3f} - "
-            + f"TU Loss: {epoch_train_aux[0]:.3f} - TS Loss: {epoch_train_aux[6]:.3f} - TT Loss: {epoch_train_aux[7]:.3f} - "
-            + f"VU Loss: {epoch_val_aux[0]:.3f} - VS Loss: {epoch_val_aux[6]:.3f} - VT Loss: {epoch_val_aux[7]:.3f}"
+            f"Epoch: {epoch} - Time: {t1_epoch-t0_epoch:.2f} s - LR: {epoch_lr:.5e} - Train Loss: {epoch_train_loss:.5e} - Val Loss: {epoch_val_loss:.5e} - "
+            + f"TU Loss: {epoch_train_aux[0]:.5e} - TS Loss: {epoch_train_aux[6]:.5e} - TT Loss: {epoch_train_aux[7]:.5e} - "
+            + f"VU Loss: {epoch_val_aux[0]:.5e} - VS Loss: {epoch_val_aux[6]:.5e} - VT Loss: {epoch_val_aux[7]:.5e}"
         )
 
         if len(val_loss) == 1 or epoch_val_loss < best_val_loss:
