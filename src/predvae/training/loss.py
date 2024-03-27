@@ -287,12 +287,11 @@ def ssvae_loss(
         latent_log_prior,
         latent_log_prob,
         reconstruction_log_prob,
-    ) = jnp.split(loss_components, 5, axis=-1)
+    ) = loss_components.T
 
     unsupervised_losses = (
-        beta * (latent_log_prob + target_log_prob)
-        - latent_log_prior
-        - target_log_prior
+        beta * (latent_log_prob - latent_log_prior)
+        + target_log_prob - target_log_prior
         - reconstruction_log_prob
     )
     supervised_losses = (
