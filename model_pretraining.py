@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "TEST_SSVAEv2"
+RUN_NAME = "PRETRAINED_SSVAE_L5_M3"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
@@ -43,12 +43,12 @@ NUM_POWER_ITERATIONS = 5
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
 BETA = 1.0
-USE_V2 = True
+USE_V2 = False
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 20
+EPOCHS = 150
 WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
@@ -370,30 +370,6 @@ val_iterator = data.make_spectrophotometric_iterator(
     RNG_KEY,
 ) = jr.split(RNG_KEY, 6)
 
-
-predictor = nn.GaussianMixtureCoder(
-    INPUT_SIZE,
-    PREDICTOR_SIZE,
-    LAYERS,
-    N_LAYERS,
-    NUM_MIXTURE_COMPONENTS,
-    jax.nn.tanh,
-    predictor_key,
-    USE_SPEC_NORM,
-    NUM_POWER_ITERATIONS,
-)
-
-encoder = nn.GaussianCoder(
-    INPUT_SIZE + PREDICTOR_SIZE,
-    LATENT_SIZE,
-    LAYERS,
-    N_LAYERS,
-    jax.nn.tanh,
-    encoder_key,
-    USE_SPEC_NORM,
-    NUM_POWER_ITERATIONS,
-)
-
 decoder_input_layer = nn.InputLayer(
     x_features=LATENT_SIZE,
     y_features=PREDICTOR_SIZE,
@@ -412,7 +388,6 @@ decoder = nn.GaussianCoder(
     NUM_POWER_ITERATIONS,
 )
 
-
 latent_prior = nn.Gaussian(
     mu=jnp.zeros(LATENT_SIZE),
     log_sigma=jnp.zeros(LATENT_SIZE),
@@ -425,6 +400,17 @@ target_prior = nn.Gaussian(
 
 if USE_V2:
 
+    encoder = nn.GaussianCoder(
+        INPUT_SIZE,
+        LATENT_SIZE,
+        LAYERS,
+        N_LAYERS,
+        jax.nn.tanh,
+        encoder_key,
+        USE_SPEC_NORM,
+        NUM_POWER_ITERATIONS,
+    )
+
     predictor_input_layer = nn.InputLayer(
         x_features=LATENT_SIZE,
         y_features=INPUT_SIZE,
@@ -432,23 +418,68 @@ if USE_V2:
         key=encoder_input_key,
     )
 
-    SSVAE = partial(nn.SSVAEv2, predictor_input_layer=predictor_input_layer)
+    predictor = nn.GaussianMixtureCoder(
+        INPUT_SIZE + LATENT_SIZE,
+        PREDICTOR_SIZE,
+        LAYERS,
+        N_LAYERS,
+        NUM_MIXTURE_COMPONENTS,
+        jax.nn.tanh,
+        predictor_key,
+        USE_SPEC_NORM,
+        NUM_POWER_ITERATIONS,
+    )
+
+    SSVAE = partial(
+        nn.SSVAEv2,
+        encoder=encoder,
+        predictor=predictor,
+        predictor_input_layer=predictor_input_layer
+    )
 
 else:
+
     encoder_input_layer = nn.InputLayer(
         x_features=INPUT_SIZE,
         y_features=PREDICTOR_SIZE,
         out_features=INPUT_SIZE + PREDICTOR_SIZE,
         key=encoder_input_key,
     )
-    SSVAE = partial(nn.SSVAE, encoder_input_layer=encoder_input_layer)
+
+    encoder = nn.GaussianCoder(
+        INPUT_SIZE+PREDICTOR_SIZE,
+        LATENT_SIZE,
+        LAYERS,
+        N_LAYERS,
+        jax.nn.tanh,
+        encoder_key,
+        USE_SPEC_NORM,
+        NUM_POWER_ITERATIONS,
+    )
+
+    predictor = nn.GaussianMixtureCoder(
+        INPUT_SIZE,
+        PREDICTOR_SIZE,
+        LAYERS,
+        N_LAYERS,
+        NUM_MIXTURE_COMPONENTS,
+        jax.nn.tanh,
+        predictor_key,
+        USE_SPEC_NORM,
+        NUM_POWER_ITERATIONS,
+    )
+
+    SSVAE = partial(
+        nn.SSVAE,
+        encoder=encoder,
+        predictor=predictor,
+        encoder_input_layer=encoder_input_layer
+    )
 
 ssvae, input_state = eqx.nn.make_with_state(SSVAE)(
-    encoder,
-    decoder,
-    predictor,
-    latent_prior,
-    target_prior,
+    decoder=decoder,
+    latent_prior=latent_prior,
+    target_prior=target_prior,
     decoder_input_layer=decoder_input_layer,
 )
 
