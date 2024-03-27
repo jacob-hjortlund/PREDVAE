@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "VAE_B100_L5"
+RUN_NAME = "TEST_SSVAEv2"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
@@ -42,21 +42,21 @@ USE_SPEC_NORM = True
 NUM_POWER_ITERATIONS = 5
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
-BETA = 100.0
+BETA = 1.0
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 20
+EPOCHS = 3
 WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
-PRETRAIN_VAE = True
+PRETRAIN_VAE = False
 PRETRAIN_PREDICTOR = False
-TRAIN_FULL_MODEL = False
+TRAIN_FULL_MODEL = True
 
 USE_EARLY_STOPPING = False
 EARLY_STOPPING_PATIENCE = 10
@@ -1170,7 +1170,6 @@ if TRAIN_FULL_MODEL:
     loss_kwargs = {
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
-        "use_target": True,
         "vae_factor": 1.0,
         "beta": BETA,
         "predictor_factor": 1.0,
