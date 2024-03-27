@@ -242,7 +242,7 @@ def ssvae_loss(
 
     vmapped_sample_loss = vmap(
         _sample_loss,
-        in_axes=(None, None, 0, 0, None, None, None, None),
+        in_axes=(None, None, 0, 0, None, None, None),
         out_axes=(0, None),
     )
     loss_components, output_state = vmapped_sample_loss(
