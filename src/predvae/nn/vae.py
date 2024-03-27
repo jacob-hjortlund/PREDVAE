@@ -296,6 +296,23 @@ class SSVAE(Module):
 
         return x_hat, x_pars, output_state
 
+    def unsupervised_call(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+
+        return self(x, y, input_state, rng_key)
+
+    def supervised_call(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+
+        predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        _, y_pars, predictor_state = self.predict(x, input_state, predictor_key)
+        z, z_pars, encoder_state = self.encode(x, y, predictor_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
+
     def __call__(
         self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
     ):
@@ -304,4 +321,83 @@ class SSVAE(Module):
         z, z_pars, encoder_state = self.encode(x, y, predictor_state, encoder_key)
         x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
 
-        return y, z, x_hat, y_pars, z_pars, x_pars, decoder_state
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
+
+
+class SSVAEv2(Module):
+    encoder: Module
+    decoder: Module
+    predictor: Module
+    latent_prior: Module
+    target_prior: Module
+    predictor_input_layer: InputLayer
+    decoder_input_layer: InputLayer
+
+    def __init__(
+        self,
+        encoder: Module,
+        decoder: Module,
+        predictor: Module,
+        latent_prior: Module,
+        target_prior: Module,
+        predictor_input_layer: Module = eqx.nn.Identity(),
+        decoder_input_layer: Module = eqx.nn.Identity(),
+        *args,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.predictor = predictor
+        self.latent_prior = latent_prior
+        self.target_prior = target_prior
+        self.predictor_input_layer = predictor_input_layer
+        self.decoder_input_layer = decoder_input_layer
+
+    def predict(
+        self, x: ArrayLike, z: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+        _x = self.predictor_input_layer(z, x)
+        y, y_pars, output_state = self.predictor(_x, input_state, rng_key)
+
+        return y, y_pars, output_state
+
+    def encode(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+        z, z_pars, output_state = self.encoder(x, input_state, rng_key)
+
+        return z, z_pars, output_state
+
+    def decode(
+        self, z: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+        _z = self.decoder_input_layer(z, y)
+        x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
+
+        return x_hat, x_pars, output_state
+
+    def unsupervised_call(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+
+        return self(x, y, input_state, rng_key)
+
+    def supervised_call(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+
+        predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        z, z_pars, encoder_state = self.encode(x, predictor_state, encoder_key)
+        _, y_pars, predictor_state = self.predict(x, z, input_state, predictor_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
+
+    def __call__(
+        self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
+    ):
+        predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        z, z_pars, encoder_state = self.encode(x, predictor_state, encoder_key)
+        y, y_pars, predictor_state = self.predict(x, z, input_state, predictor_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
