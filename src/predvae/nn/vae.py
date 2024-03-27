@@ -396,8 +396,8 @@ class SSVAEv2(Module):
         self, x: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
     ):
         predictor_key, encoder_key, decoder_key = jr.split(rng_key, 3)
-        z, z_pars, encoder_state = self.encode(x, predictor_state, encoder_key)
-        y, y_pars, predictor_state = self.predict(x, z, input_state, predictor_key)
-        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+        z, z_pars, encoder_state = self.encode(x, input_state, encoder_key)
+        y, y_pars, predictor_state = self.predict(x, z, encoder_state, predictor_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, predictor_state, decoder_key)
 
         return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
