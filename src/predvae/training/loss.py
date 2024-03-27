@@ -117,14 +117,8 @@ def _supervised_sample_loss(
 
     reconstruction_log_prob = model.decoder.log_prob(x, *x_pars)
 
-    supervised_loss = (
-        latent_log_prob - latent_log_prior - target_log_prior - reconstruction_log_prob
-    )
-
     loss = jnp.array(
         [
-            -9999.0,
-            supervised_loss,
             target_log_prob,
             target_log_prior,
             latent_log_prior,
@@ -165,18 +159,8 @@ def _unsupervised_sample_loss(
 
     reconstruction_log_prob = model.decoder.log_prob(x, *x_pars)
 
-    unsupervised_loss = (
-        latent_log_prob
-        + target_log_prob
-        - latent_log_prior
-        - target_log_prior
-        - reconstruction_log_prob
-    )
-
     loss = jnp.array(
         [
-            unsupervised_loss,
-            0.0,
             target_log_prob,
             target_log_prior,
             latent_log_prior,
@@ -254,6 +238,7 @@ def ssvae_loss(
     y: ArrayLike,
     rng_key: ArrayLike,
     alpha: ArrayLike,
+    beta: int = 1.0,
     vae_factor: int = 1.0,
     missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
@@ -296,45 +281,65 @@ def ssvae_loss(
     idx_missing = y.squeeze() == missing_target_value
     idx_not_missing = y.squeeze() != missing_target_value
 
+    (
+        target_log_prob,
+        target_log_prior,
+        latent_log_prior,
+        latent_log_prob,
+        reconstruction_log_prob,
+    ) = jnp.split(loss_components, 5, axis=-1)
+
+    unsupervised_losses = (
+        beta * (latent_log_prob + target_log_prob)
+        - latent_log_prior
+        - target_log_prior
+        - reconstruction_log_prob
+    )
+    supervised_losses = (
+        beta * (latent_log_prob - latent_log_prior)
+        - target_log_prior
+        - reconstruction_log_prob
+    )
+
     batch_unsupervised_loss = (
-        vae_factor * jnp.sum(loss_components[:, 0], where=idx_missing) / batch_size
+        vae_factor * jnp.sum(unsupervised_losses, where=idx_missing) / batch_size
     )
     batch_unsupervised_target_log_prob = (
-        jnp.sum(loss_components[:, 2], where=idx_missing) / batch_size
+        jnp.sum(target_log_prior, where=idx_missing) / batch_size
     )
     batch_unsupervised_target_log_prior = (
-        jnp.sum(loss_components[:, 3], where=idx_missing) / batch_size
+        jnp.sum(target_log_prior, where=idx_missing) / batch_size
     )
     batch_unsupervised_latent_log_prior = (
-        jnp.sum(loss_components[:, 4], where=idx_missing) / batch_size
+        jnp.sum(latent_log_prior, where=idx_missing) / batch_size
     )
     batch_unsupervised_latent_log_prob = (
-        jnp.sum(loss_components[:, 5], where=idx_missing) / batch_size
+        jnp.sum(latent_log_prob, where=idx_missing) / batch_size
     )
     batch_unsupervised_reconstruction_log_prob = (
-        jnp.sum(loss_components[:, 6], where=idx_missing) / batch_size
+        jnp.sum(reconstruction_log_prob, where=idx_missing) / batch_size
     )
 
     batch_supervised_loss = (
-        vae_factor * jnp.sum(loss_components[:, 1], where=idx_not_missing) / batch_size
+        vae_factor * jnp.sum(supervised_losses, where=idx_not_missing) / batch_size
     )
     batch_supervised_target_log_prob_loss = (
-        -alpha * jnp.mean(loss_components[:, 2], where=idx_not_missing) / batch_size
+        -alpha * jnp.mean(target_log_prob, where=idx_not_missing) / batch_size
     )
     batch_supervised_target_log_prob = (
-        jnp.sum(loss_components[:, 2], where=idx_not_missing) / batch_size
+        jnp.sum(target_log_prob, where=idx_not_missing) / batch_size
     )
     batch_supervised_target_log_prior = (
-        jnp.sum(loss_components[:, 3], where=idx_not_missing) / batch_size
+        jnp.sum(target_log_prior, where=idx_not_missing) / batch_size
     )
     batch_supervised_latent_log_prior = (
-        jnp.sum(loss_components[:, 4], where=idx_not_missing) / batch_size
+        jnp.sum(latent_log_prior, where=idx_not_missing) / batch_size
     )
     batch_supervised_latent_log_prob = (
-        jnp.sum(loss_components[:, 5], where=idx_not_missing) / batch_size
+        jnp.sum(latent_log_prob, where=idx_not_missing) / batch_size
     )
     batch_supervised_reconstruction_log_prob = (
-        jnp.sum(loss_components[:, 6], where=idx_not_missing) / batch_size
+        jnp.sum(reconstruction_log_prob, where=idx_not_missing) / batch_size
     )
 
     sum_array = jnp.asarray(
@@ -342,7 +347,6 @@ def ssvae_loss(
             batch_unsupervised_loss,
             batch_supervised_loss,
             batch_supervised_target_log_prob_loss,
-            # - alpha * batch_supervised_target_log_prob,
         ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
@@ -357,7 +361,6 @@ def ssvae_loss(
             batch_unsupervised_reconstruction_log_prob,
             batch_supervised_loss,
             batch_supervised_target_log_prob_loss,
-            # -alpha * batch_supervised_target_log_prob,
             batch_supervised_target_log_prob,
             batch_supervised_target_log_prior,
             batch_supervised_latent_log_prior,

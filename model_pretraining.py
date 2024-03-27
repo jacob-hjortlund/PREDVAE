@@ -42,6 +42,7 @@ USE_SPEC_NORM = True
 NUM_POWER_ITERATIONS = 5
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
+BETA = 100.0
 
 # Training Config
 
@@ -479,6 +480,7 @@ if PRETRAIN_VAE:
         "missing_target_value": MISSING_TARGET_VALUE,
         "use_target": False,
         "vae_factor": 1.0,
+        "beta": BETA,
     }
     pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
