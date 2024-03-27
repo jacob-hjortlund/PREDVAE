@@ -12,8 +12,8 @@ from .vae import (
 from .utils import (
     freeze_prior,
     freeze_submodule,
-    freeze_target_inputs,
-    init_target_inputs,
+    freeze_submodule_inputs,
+    init_submodule_inputs,
     init_submodule,
     set_submodule_inference_mode,
 )

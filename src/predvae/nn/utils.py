@@ -27,21 +27,28 @@ def freeze_prior(model, space="latent", filter_spec=None, inverse=False):
     return filter_spec
 
 
-def freeze_target_inputs(model, filter_spec=None, inverse=False):
+def freeze_submodule_inputs(
+    model, submodule, freeze_x=True, freeze_y=True, filter_spec=None, inverse=False
+):
 
+    get_submodule = lambda model: getattr(model, submodule)
     is_input_layer = lambda layer: isinstance(layer, InputLayer)
-    get_target_weights = lambda model: [
-        layer.y_weight
-        for layer in tree_leaves(model, is_leaf=is_input_layer)
+    _get_weights = lambda model, input: [
+        getattr(layer, f"{input}_weight")
+        for layer in tree_leaves(get_submodule(model), is_leaf=is_input_layer)
         if is_input_layer(layer)
     ]
-    replace = [inverse] * len(get_target_weights(model))
+    get_weights = lambda model: (_get_weights(model, "x") if freeze_x else []) + (
+        _get_weights(model, "y") if freeze_y else []
+    )
+
+    replace = [inverse] * len(get_weights(model))
 
     if filter_spec is None:
         filter_spec = tree_map(lambda _: True, model)
 
     filter_spec = eqx.tree_at(
-        get_target_weights,
+        get_weights,
         filter_spec,
         replace=replace,
     )
@@ -84,27 +91,33 @@ def _init_fn(weight, key):
     return jax.random.uniform(key, shape, minval=-lim, maxval=lim)
 
 
-def init_target_inputs(model, key, init_value=None):
+def init_submodule_inputs(
+    model, submodule, key, init_x=True, init_y=True, init_value=None
+):
 
     if init_value is None:
         init_fn = _init_fn
     else:
         init_fn = lambda weight, key: jnp.ones_like(weight) * init_value
 
+    get_submodule = lambda model: getattr(model, submodule)
     is_input_layer = lambda layer: isinstance(layer, InputLayer)
-    get_target_weights = lambda model: [
-        layer.y_weight
-        for layer in tree_leaves(model, is_leaf=is_input_layer)
+    _get_weights = lambda model, input: [
+        getattr(layer, f"{input}_weight")
+        for layer in tree_leaves(get_submodule(model), is_leaf=is_input_layer)
         if is_input_layer(layer)
     ]
-    weights = get_target_weights(model)
+    get_weights = lambda model: (_get_weights(model, "x") if init_x else []) + (
+        _get_weights(model, "y") if init_y else []
+    )
+    weights = get_weights(model)
     new_weights = [
         init_fn(weight, subkey)
         for weight, subkey in zip(weights, jr.split(key, len(weights)))
     ]
 
     updated_model = eqx.tree_at(
-        get_target_weights,
+        get_weights,
         model,
         replace=new_weights,
     )

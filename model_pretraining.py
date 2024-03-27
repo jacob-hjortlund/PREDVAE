@@ -506,9 +506,25 @@ if PRETRAIN_VAE:
 
     filter_spec = nn.freeze_prior(ssvae, space="target", filter_spec=filter_spec)
     filter_spec = nn.freeze_submodule(ssvae, "predictor", filter_spec=filter_spec)
-    filter_spec = nn.freeze_target_inputs(ssvae, filter_spec=filter_spec)
-    ssvae = nn.init_target_inputs(ssvae, RNG_KEY, init_value=0.0)
+    filter_spec = nn.freeze_submodule_inputs(
+        ssvae, "decoder", freeze_x=False, freeze_y=True, filter_spec=filter_spec
+    )
+    ssvae = nn.init_submodule_inputs(
+        ssvae, "decoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+    )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", True)
+
+    if USE_V2:
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "predictor", freeze_x=True, freeze_y=True, filter_spec=filter_spec
+        )
+    else:
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "encoder", freeze_x=False, freeze_y=True, filter_spec=filter_spec
+        )
+        ssvae = nn.init_submodule_inputs(
+            ssvae, "encoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+        )
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
         FINAL_LEARNING_RATE,
@@ -841,10 +857,27 @@ if PRETRAIN_PREDICTOR:
     )
     filter_spec = nn.freeze_submodule(ssvae, "encoder", filter_spec=filter_spec)
     filter_spec = nn.freeze_submodule(ssvae, "decoder", filter_spec=filter_spec)
+    filter_spec = nn.freeze_submodule_inputs(
+        ssvae, "decoder", freeze_x=True, freeze_y=True, filter_spec=filter_spec
+    )
 
+    ssvae = nn.init_submodule_inputs(
+        ssvae, "decoder", init_x=False, init_y=True, RNG_KEY, init_value=0.0
+    )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", False)
     ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", True)
     ssvae = nn.set_submodule_inference_mode(ssvae, "decoder", True)
+
+    if USE_V2:
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "predictor", freeze_x=True, freeze_y=True,
+            filter_spec=filter_spec, inverse=True
+        )
+    else:
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "encoder", freeze_x=True, freeze_y=True, filter_spec=filter_spec
+        )
+
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
         FINAL_LEARNING_RATE,
@@ -1194,13 +1227,40 @@ if TRAIN_FULL_MODEL:
     filter_spec = nn.freeze_submodule(
         ssvae, "decoder", filter_spec=filter_spec, inverse=True
     )
-    filter_spec = nn.freeze_target_inputs(ssvae, filter_spec, inverse=True)
+    filter_spec = nn.freeze_prior(
+        ssvae, space="target", filter_spec=filter_spec, inverse=True
+    )
+    filter_spec = nn.freeze_submodule(
+        ssvae, "predictor", filter_spec=filter_spec, inverse=True
+    )
+    filter_spec = nn.freeze_submodule_inputs(
+        ssvae, "decoder", freeze_x=True, freeze_y=True,
+        filter_spec=filter_spec, inverse=True
+    )
+    
 
     init_key, RNG_KEY = jr.split(RNG_KEY)
-    ssvae = nn.init_target_inputs(ssvae, init_key)
+    ssvae = nn.init_submodule_inputs(
+        ssvae, "decoder", init_x=True, init_y=True, init_key
+    )
     ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", False)
     ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", False)
     ssvae = nn.set_submodule_inference_mode(ssvae, "decoder", False)
+
+    if USE_V2:
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "predictor", freeze_x=True, freeze_y=True,
+            filter_spec=filter_spec, inverse=True
+        )
+    else:
+        init_key, RNG_KEY = jr.split(RNG_KEY)
+        filter_spec = nn.freeze_submodule_inputs(
+            ssvae, "encoder", freeze_x=True, freeze_y=True,
+            filter_spec=filter_spec, inverse=True
+        )
+        ssvae = nn.init_submodule_inputs(
+            ssvae, "encoder", init_x=True, init_y=True, init_key
+        )
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
         FINAL_LEARNING_RATE,
