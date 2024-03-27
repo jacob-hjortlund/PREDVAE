@@ -43,6 +43,7 @@ NUM_POWER_ITERATIONS = 5
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
 BETA = 1.0
+USE_V2 = True
 
 # Training Config
 
@@ -369,6 +370,7 @@ val_iterator = data.make_spectrophotometric_iterator(
     RNG_KEY,
 ) = jr.split(RNG_KEY, 6)
 
+
 predictor = nn.GaussianMixtureCoder(
     INPUT_SIZE,
     PREDICTOR_SIZE,
@@ -379,13 +381,6 @@ predictor = nn.GaussianMixtureCoder(
     predictor_key,
     USE_SPEC_NORM,
     NUM_POWER_ITERATIONS,
-)
-
-encoder_input_layer = nn.InputLayer(
-    x_features=INPUT_SIZE,
-    y_features=PREDICTOR_SIZE,
-    out_features=INPUT_SIZE + PREDICTOR_SIZE,
-    key=encoder_input_key,
 )
 
 encoder = nn.GaussianCoder(
@@ -428,13 +423,32 @@ target_prior = nn.Gaussian(
     log_sigma=jnp.zeros(PREDICTOR_SIZE),
 )
 
-ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(
+if USE_V2:
+
+    predictor_input_layer = nn.InputLayer(
+        x_features=LATENT_SIZE,
+        y_features=INPUT_SIZE,
+        out_features=LATENT_SIZE + INPUT_SIZE,
+        key=encoder_input_key,
+    )
+
+    SSVAE = partial(nn.SSVAEv2, predictor_input_layer=predictor_input_layer)
+
+else:
+    encoder_input_layer = nn.InputLayer(
+        x_features=INPUT_SIZE,
+        y_features=PREDICTOR_SIZE,
+        out_features=INPUT_SIZE + PREDICTOR_SIZE,
+        key=encoder_input_key,
+    )
+    SSVAE = partial(nn.SSVAE, encoder_input_layer=encoder_input_layer)
+
+ssvae, input_state = eqx.nn.make_with_state(SSVAE)(
     encoder,
     decoder,
     predictor,
     latent_prior,
     target_prior,
-    encoder_input_layer=encoder_input_layer,
     decoder_input_layer=decoder_input_layer,
 )
 
