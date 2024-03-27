@@ -321,7 +321,7 @@ def ssvae_loss(
         [
             batch_unsupervised_loss,
             batch_supervised_loss,
-            batch_supervised_target_log_prob_loss,
+            predictor_factor * batch_supervised_target_log_prob_loss,
         ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
