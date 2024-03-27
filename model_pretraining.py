@@ -478,9 +478,9 @@ if PRETRAIN_VAE:
     loss_kwargs = {
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
-        "use_target": False,
         "vae_factor": 1.0,
         "beta": BETA,
+        "predictor_factor": 0.0,
     }
     pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -814,8 +814,9 @@ if PRETRAIN_PREDICTOR:
     loss_kwargs = {
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
-        "use_target": True,
         "vae_factor": 0.0,
+        "beta": BETA,
+        "predictor_factor": 1.0,
     }
     pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -1171,6 +1172,8 @@ if TRAIN_FULL_MODEL:
         "missing_target_value": MISSING_TARGET_VALUE,
         "use_target": True,
         "vae_factor": 1.0,
+        "beta": BETA,
+        "predictor_factor": 1.0,
     }
     full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
