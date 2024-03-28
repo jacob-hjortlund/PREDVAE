@@ -99,7 +99,8 @@ def _loss(
 
     _vmapped_sample_loss = eqx.filter_vmap(
         _sample_loss,
-        in_axes=(None, None, None, None, 0, None, None),
+        in_axes=(None, None, None, None, eqx.if_array(0), None, None),
+        out_axes=(eqx.if_array(0), None)
     )
 
     rng_keys = jr.split(rng_key, n_samples)
@@ -150,10 +151,10 @@ def ssvae_loss(
 
     model = eqx.combine(free_params, frozen_params)
 
-    vmapped_sample_loss = vmap(
+    vmapped_sample_loss = eqx.filter_vmap(
         _loss,
-        in_axes=(None, None, 0, 0, None, None, None, None),
-        out_axes=(0, None),
+        in_axes=(None, None, eqx.if_array(0), eqx.if_array(0), None, None, None, None),
+        out_axes=(eqx.if_array(0), None),
     )
     loss_components, output_state = vmapped_sample_loss(
         model,

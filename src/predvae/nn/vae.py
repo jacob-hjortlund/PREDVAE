@@ -147,7 +147,7 @@ class GaussianMixtureCoder(Module):
 
         idx = jr.categorical(categorical_key, logits)
         _mu, _log_sigma = mu[..., idx], log_sigma[..., idx]
-        z = _mu + jnp.exp(_log_sigma) * jr.normal(normal_key, mu.shape)
+        z = _mu + jnp.exp(_log_sigma) * jr.normal(normal_key, _mu.shape)
 
         return z
 
@@ -383,6 +383,7 @@ class SSVAEv2(Module):
     def decode(
         self, z: ArrayLike, y: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike
     ):
+
         _z = self.decoder_input_layer(z, y)
         x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
 
