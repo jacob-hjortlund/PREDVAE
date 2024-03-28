@@ -33,7 +33,7 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_L5_M3" #"VAE_B1000_L5"
+RUN_NAME = "PRETRAIN_SSVAEv2_L5_M3_B1" #"VAE_B1000_L5"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
@@ -43,20 +43,20 @@ NUM_POWER_ITERATIONS = 5
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
 BETA = 1.0
-USE_V2 = False
+USE_V2 = True
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 450
+EPOCHS = 150
 WARMUP_EPOCHS = 1
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
-PRETRAIN_VAE = False
-PRETRAIN_PREDICTOR = False
+PRETRAIN_VAE = True
+PRETRAIN_PREDICTOR = True
 TRAIN_FULL_MODEL = True
 
 USE_EARLY_STOPPING = False
@@ -893,7 +893,7 @@ if PRETRAIN_PREDICTOR:
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
         "vae_factor": 0.0,
-        "beta": BETA,
+        "beta": 1.0,
         "predictor_factor": 1.0,
     }
     pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
@@ -1276,7 +1276,7 @@ if TRAIN_FULL_MODEL:
         "alpha": ALPHA,
         "missing_target_value": MISSING_TARGET_VALUE,
         "vae_factor": 1.0,
-        "beta": BETA,
+        "beta": 1.0,
         "predictor_factor": 1.0,
     }
     full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
