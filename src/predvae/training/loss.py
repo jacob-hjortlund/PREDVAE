@@ -9,17 +9,15 @@ from jax.typing import ArrayLike
 from collections.abc import Callable
 
 
-def _sample_loss(
+def _call_model(
     model: Module,
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: ArrayLike,
-    missing_target_value: ArrayLike = -9999.0,
-    target_transform: Callable = lambda x: x,
+    missing_target_value: ArrayLike,
 ):
 
-    y = target_transform(y)
     (dynamic_unsupervised_call, dynamic_unsupervised_state), (
         static_unsupervised_call,
         static_unsupervised_state,
@@ -64,6 +62,23 @@ def _sample_loss(
 
     call_components = eqx.combine(dynamic_call, static_call)
     y, z, x_hat, y_pars, z_pars, x_pars = call_components
+
+    return y, z, x_hat, y_pars, z_pars, x_pars, supervised_state
+
+
+def _sample_loss(
+    model: Module,
+    input_state: eqx.nn.State,
+    x: ArrayLike,
+    y: ArrayLike,
+    rng_key: ArrayLike,
+    n_samples: ArrayLike = 1,
+    missing_target_value: ArrayLike = -9999.0,
+    target_transform: Callable = lambda x: x,
+):
+
+    y = target_transform(y)
+    rng_keys = jr.split(rng_key, n_samples)
 
     target_log_prior = model.target_prior(y)
     target_log_prob = model.predictor.log_prob(y, *y_pars)
