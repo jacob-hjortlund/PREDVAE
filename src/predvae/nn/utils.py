@@ -31,7 +31,7 @@ def freeze_submodule_inputs(
     model, submodule, freeze_x=True, freeze_y=True, filter_spec=None, inverse=False
 ):
 
-    get_submodule = lambda model: getattr(model, submodule)
+    get_submodule = lambda model: getattr(model, submodule + "_input_layer")
     is_input_layer = lambda layer: isinstance(layer, InputLayer)
     _get_weights = lambda model, input: [
         getattr(layer, f"{input}_weight")
@@ -100,7 +100,7 @@ def init_submodule_inputs(
     else:
         init_fn = lambda weight, key: jnp.ones_like(weight) * init_value
 
-    get_submodule = lambda model: getattr(model, submodule)
+    get_submodule = lambda model: getattr(model, submodule + "_input_layer")
     is_input_layer = lambda layer: isinstance(layer, InputLayer)
     _get_weights = lambda model, input: [
         getattr(layer, f"{input}_weight")
