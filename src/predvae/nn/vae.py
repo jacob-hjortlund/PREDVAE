@@ -81,12 +81,19 @@ class GaussianCoder(Module):
         self.activation = activation
 
     def sample(self, mu, log_sigma, rng_key):
-        return mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
+        z = mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
+
+        return z
 
     def log_prob(self, x, mu, log_sigma):
         return jnp.sum(jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma)))
 
-    def __call__(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+    def __call__(
+        self,
+        x: ArrayLike,
+        input_state: eqx.nn.State,
+        rng_key: ArrayLike,
+    ):
         output, output_state = self.mlp(x, input_state)
         mu = output[..., : self.output_size]
         log_sigma = output[..., self.output_size :] * jnp.ones_like(mu)
@@ -137,9 +144,10 @@ class GaussianMixtureCoder(Module):
     def sample(self, logits, mu, log_sigma, rng_key):
 
         categorical_key, normal_key = jr.split(rng_key)
+
         idx = jr.categorical(categorical_key, logits)
-        mu, log_sigma = mu[..., idx], log_sigma[..., idx]
-        z = mu + jnp.exp(log_sigma) * jr.normal(normal_key, mu.shape)
+        _mu, _log_sigma = mu[..., idx], log_sigma[..., idx]
+        z = _mu + jnp.exp(_log_sigma) * jr.normal(normal_key, mu.shape)
 
         return z
 
@@ -148,7 +156,12 @@ class GaussianMixtureCoder(Module):
         log_probs = jax.nn.log_softmax(logits)
         return jax.scipy.special.logsumexp(log_probs + log_normals, axis=-1)
 
-    def __call__(self, x: ArrayLike, input_state: eqx.nn.State, rng_key: ArrayLike):
+    def __call__(
+        self,
+        x: ArrayLike,
+        input_state: eqx.nn.State,
+        rng_key: ArrayLike,
+    ):
         output, output_state = self.mlp(x, input_state)
         logits = output[..., : self.num_components]
         mu = output[

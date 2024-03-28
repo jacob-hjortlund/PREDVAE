@@ -33,13 +33,14 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "PRETRAIN_SSVAEv2_L5_M3_B1" #"VAE_B1000_L5"
+RUN_NAME = "SSVAE_L5_M3"  # "VAE_B1000_L5"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
 NUM_MIXTURE_COMPONENTS = 3
 USE_SPEC_NORM = True
 NUM_POWER_ITERATIONS = 5
+N_MC_SAMPLES = 100
 LAYERS = [2048, 1024, 512]
 N_LAYERS = 3
 BETA = 1.0
@@ -55,8 +56,8 @@ FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
-PRETRAIN_VAE = True
-PRETRAIN_PREDICTOR = True
+PRETRAIN_VAE = False
+PRETRAIN_PREDICTOR = False
 TRAIN_FULL_MODEL = True
 
 USE_EARLY_STOPPING = False
@@ -434,7 +435,7 @@ if USE_V2:
         nn.SSVAEv2,
         encoder=encoder,
         predictor=predictor,
-        predictor_input_layer=predictor_input_layer
+        predictor_input_layer=predictor_input_layer,
     )
 
 else:
@@ -447,7 +448,7 @@ else:
     )
 
     encoder = nn.GaussianCoder(
-        INPUT_SIZE+PREDICTOR_SIZE,
+        INPUT_SIZE + PREDICTOR_SIZE,
         LATENT_SIZE,
         LAYERS,
         N_LAYERS,
@@ -473,7 +474,7 @@ else:
         nn.SSVAE,
         encoder=encoder,
         predictor=predictor,
-        encoder_input_layer=encoder_input_layer
+        encoder_input_layer=encoder_input_layer,
     )
 
 ssvae, input_state = eqx.nn.make_with_state(SSVAE)(
@@ -542,6 +543,7 @@ if PRETRAIN_VAE:
         "vae_factor": 1.0,
         "beta": BETA,
         "predictor_factor": 0.0,
+        "n_samples": N_MC_SAMPLES,
     }
     pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -870,14 +872,17 @@ if PRETRAIN_PREDICTOR:
 
     if USE_V2:
         filter_spec = nn.freeze_submodule_inputs(
-            ssvae, "predictor", freeze_x=True, freeze_y=True,
-            filter_spec=filter_spec, inverse=True
+            ssvae,
+            "predictor",
+            freeze_x=True,
+            freeze_y=True,
+            filter_spec=filter_spec,
+            inverse=True,
         )
     else:
         filter_spec = nn.freeze_submodule_inputs(
             ssvae, "encoder", freeze_x=True, freeze_y=True, filter_spec=filter_spec
         )
-
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
         FINAL_LEARNING_RATE,
@@ -895,6 +900,7 @@ if PRETRAIN_PREDICTOR:
         "vae_factor": 0.0,
         "beta": 1.0,
         "predictor_factor": 1.0,
+        "n_samples": N_MC_SAMPLES,
     }
     pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -1234,10 +1240,13 @@ if TRAIN_FULL_MODEL:
         ssvae, "predictor", filter_spec=filter_spec, inverse=True
     )
     filter_spec = nn.freeze_submodule_inputs(
-        ssvae, "decoder", freeze_x=True, freeze_y=True,
-        filter_spec=filter_spec, inverse=True
+        ssvae,
+        "decoder",
+        freeze_x=True,
+        freeze_y=True,
+        filter_spec=filter_spec,
+        inverse=True,
     )
-    
 
     init_key, RNG_KEY = jr.split(RNG_KEY)
     ssvae = nn.init_submodule_inputs(
@@ -1249,14 +1258,22 @@ if TRAIN_FULL_MODEL:
 
     if USE_V2:
         filter_spec = nn.freeze_submodule_inputs(
-            ssvae, "predictor", freeze_x=True, freeze_y=True,
-            filter_spec=filter_spec, inverse=True
+            ssvae,
+            "predictor",
+            freeze_x=True,
+            freeze_y=True,
+            filter_spec=filter_spec,
+            inverse=True,
         )
     else:
         init_key, RNG_KEY = jr.split(RNG_KEY)
         filter_spec = nn.freeze_submodule_inputs(
-            ssvae, "encoder", freeze_x=True, freeze_y=True,
-            filter_spec=filter_spec, inverse=True
+            ssvae,
+            "encoder",
+            freeze_x=True,
+            freeze_y=True,
+            filter_spec=filter_spec,
+            inverse=True,
         )
         ssvae = nn.init_submodule_inputs(
             ssvae, "encoder", init_key, init_x=True, init_y=True
@@ -1278,6 +1295,7 @@ if TRAIN_FULL_MODEL:
         "vae_factor": 1.0,
         "beta": 1.0,
         "predictor_factor": 1.0,
+        "n_samples": N_MC_SAMPLES,
     }
     full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
