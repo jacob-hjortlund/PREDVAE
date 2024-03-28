@@ -9,15 +9,17 @@ from jax.typing import ArrayLike
 from collections.abc import Callable
 
 
-def _call_model(
+def _sample_loss(
     model: Module,
     input_state: eqx.nn.State,
     x: ArrayLike,
     y: ArrayLike,
     rng_key: ArrayLike,
-    missing_target_value: ArrayLike,
+    missing_target_value: ArrayLike = -9999.0,
+    target_transform: Callable = lambda x: x,
 ):
 
+    y = target_transform(y)
     (dynamic_unsupervised_call, dynamic_unsupervised_state), (
         static_unsupervised_call,
         static_unsupervised_state,
@@ -63,23 +65,6 @@ def _call_model(
     call_components = eqx.combine(dynamic_call, static_call)
     y, z, x_hat, y_pars, z_pars, x_pars = call_components
 
-    return y, z, x_hat, y_pars, z_pars, x_pars, supervised_state
-
-
-def _sample_loss(
-    model: Module,
-    input_state: eqx.nn.State,
-    x: ArrayLike,
-    y: ArrayLike,
-    rng_key: ArrayLike,
-    n_samples: ArrayLike = 1,
-    missing_target_value: ArrayLike = -9999.0,
-    target_transform: Callable = lambda x: x,
-):
-
-    y = target_transform(y)
-    rng_keys = jr.split(rng_key, n_samples)
-
     target_log_prior = model.target_prior(y)
     target_log_prob = model.predictor.log_prob(y, *y_pars)
 
@@ -101,6 +86,38 @@ def _sample_loss(
     return loss_components, supervised_state
 
 
+def _loss(
+    model: Module,
+    input_state: eqx.nn.State,
+    x: ArrayLike,
+    y: ArrayLike,
+    rng_key: ArrayLike,
+    n_samples: ArrayLike = 1,
+    missing_target_value: ArrayLike = -9999.0,
+    target_transform: Callable = lambda x: x,
+):
+
+    _vmapped_sample_loss = eqx.filter_vmap(
+        _sample_loss,
+        in_axes=(None, None, None, None, 0, None, None),
+    )
+
+    rng_keys = jr.split(rng_key, n_samples)
+    loss_components, output_state = _vmapped_sample_loss(
+        model,
+        input_state,
+        x,
+        y,
+        rng_keys,
+        missing_target_value,
+        target_transform,
+    )
+
+    loss_components = jnp.mean(loss_components, axis=0)
+
+    return loss_components, output_state
+
+
 def ssvae_loss(
     free_params: Module,
     frozen_params: Module,
@@ -112,6 +129,7 @@ def ssvae_loss(
     beta: int = 1.0,
     vae_factor: int = 1.0,
     predictor_factor: int = 1.0,
+    n_samples: int = 1,
     missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
 ) -> Module:
@@ -133,8 +151,8 @@ def ssvae_loss(
     model = eqx.combine(free_params, frozen_params)
 
     vmapped_sample_loss = vmap(
-        _sample_loss,
-        in_axes=(None, None, 0, 0, None, None, None),
+        _loss,
+        in_axes=(None, None, 0, 0, None, None, None, None),
         out_axes=(0, None),
     )
     loss_components, output_state = vmapped_sample_loss(
@@ -143,6 +161,7 @@ def ssvae_loss(
         x,
         y,
         rng_key,
+        n_samples,
         missing_target_value,
         target_transform,
     )
