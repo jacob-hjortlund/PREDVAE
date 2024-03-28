@@ -104,6 +104,7 @@ def _loss(
     )
 
     rng_keys = jr.split(rng_key, n_samples)
+    rng_keys = jnp.atleast_2d(rng_keys)
     loss_components, output_state = _vmapped_sample_loss(
         model,
         input_state,
