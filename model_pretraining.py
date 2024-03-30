@@ -33,26 +33,27 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "SSVAE_L5_M3"  # "VAE_B1000_L5"
+RUN_NAME = "SWISH_SSVAEv2_L5_M3_B1"
 INPUT_SIZE = 27
 LATENT_SIZE = 5
 PREDICTOR_SIZE = 1
 NUM_MIXTURE_COMPONENTS = 3
 USE_SPEC_NORM = True
 NUM_POWER_ITERATIONS = 5
-N_MC_SAMPLES = 100
+N_MC_SAMPLES = 1
 LAYERS = [2048, 1024, 512]
-N_LAYERS = 3
+N_LAYERS = len(LAYERS)
+ACTIVATION_FN = jax.nn.swish #jax.nn.tanh 
 BETA = 1.0
 USE_V2 = True
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 150
+EPOCHS = 20
 WARMUP_EPOCHS = 1
-INIT_LEARNING_RATE = 5e-3
-FINAL_LEARNING_RATE = 5e-6
+INIT_LEARNING_RATE = 5e-2
+FINAL_LEARNING_RATE = 5e-5
 BATCH_SIZE = 1024
 LOG_EVERY = 1
 
@@ -383,7 +384,7 @@ decoder = nn.GaussianCoder(
     INPUT_SIZE,
     LAYERS,
     N_LAYERS,
-    jax.nn.tanh,
+    ACTIVATION_FN,
     decoder_key,
     USE_SPEC_NORM,
     NUM_POWER_ITERATIONS,
@@ -406,7 +407,7 @@ if USE_V2:
         LATENT_SIZE,
         LAYERS,
         N_LAYERS,
-        jax.nn.tanh,
+        ACTIVATION_FN,
         encoder_key,
         USE_SPEC_NORM,
         NUM_POWER_ITERATIONS,
@@ -425,7 +426,7 @@ if USE_V2:
         LAYERS,
         N_LAYERS,
         NUM_MIXTURE_COMPONENTS,
-        jax.nn.tanh,
+        ACTIVATION_FN,
         predictor_key,
         USE_SPEC_NORM,
         NUM_POWER_ITERATIONS,
@@ -452,7 +453,7 @@ else:
         LATENT_SIZE,
         LAYERS,
         N_LAYERS,
-        jax.nn.tanh,
+        ACTIVATION_FN,
         encoder_key,
         USE_SPEC_NORM,
         NUM_POWER_ITERATIONS,
@@ -464,7 +465,7 @@ else:
         LAYERS,
         N_LAYERS,
         NUM_MIXTURE_COMPONENTS,
-        jax.nn.tanh,
+        ACTIVATION_FN,
         predictor_key,
         USE_SPEC_NORM,
         NUM_POWER_ITERATIONS,
