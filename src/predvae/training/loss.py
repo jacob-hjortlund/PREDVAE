@@ -1,12 +1,52 @@
+import jax
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+import optimistix as optx
 
 from jax import vmap
 from jax.lax import cond
 from equinox import Module
 from jax.typing import ArrayLike
 from collections.abc import Callable
+
+
+def median_target_fn(x: ArrayLike, args):
+
+    q, model, logits, mu, log_sigma = args
+    cdf = model.cdf(x, logits, mu, log_sigma)
+    residual = cdf - q
+
+    return residual
+
+
+def estimate_mixture_median(
+    model: Module,
+    logits: ArrayLike,
+    mu: ArrayLike,
+    log_sigma: ArrayLike,
+):
+
+    weights = jax.nn.softmax(logits, axis=-1)
+    stds = jnp.exp(log_sigma)
+    mean = jnp.sum(weights * mu, axis=-1)
+    std = jnp.sqrt(
+        jnp.sum(weights * stds**2, axis=-1)
+        + jnp.sum(weights * mu**2, axis=-1)
+        - mean**2
+    )
+
+    fn_args = (0.5, model, logits, mu, log_sigma)
+    y0 = mean
+    lower = mean - 5 * std
+    upper = mean + 5 * std
+    options = {"lower": lower, "upper": upper}
+    solver = optx.Bisection(rtol=1e-3, atol=1e-3)
+    solution = optx.root_find(
+        median_target_fn, solver, y0, fn_args, options, False, jnp.iinfo(jnp.int64).max
+    )
+
+    return solution.value
 
 
 def _sample_loss(
@@ -73,6 +113,9 @@ def _sample_loss(
 
     reconstruction_log_prob = model.decoder.log_prob(x, *x_pars)
 
+    median = estimate_mixture_median(model, *y_pars)
+    median_error = -((y - median) ** 2)
+
     loss_components = jnp.array(
         [
             target_log_prob,
@@ -80,6 +123,7 @@ def _sample_loss(
             latent_log_prior,
             latent_log_prob,
             reconstruction_log_prob,
+            median_error,
         ]
     )
 
@@ -100,7 +144,7 @@ def _loss(
     _vmapped_sample_loss = eqx.filter_vmap(
         _sample_loss,
         in_axes=(None, None, None, None, eqx.if_array(0), None, None),
-        out_axes=(eqx.if_array(0), None)
+        out_axes=(eqx.if_array(0), None),
     )
 
     rng_keys = jr.split(rng_key, n_samples)
@@ -177,6 +221,7 @@ def ssvae_loss(
         latent_log_prior,
         latent_log_prob,
         reconstruction_log_prob,
+        median_error,
     ) = loss_components.T
 
     vae_loss = vae_factor * (
@@ -213,6 +258,9 @@ def ssvae_loss(
     batch_supervised_target_log_prob_loss = (
         -alpha * jnp.mean(target_log_prob, where=idx_not_missing) / batch_size
     )
+    batch_supervised_median_loss = (
+        alpha * jnp.mean(median_error, where=idx_not_missing) / batch_size
+    )
     batch_supervised_target_log_prob = (
         jnp.sum(target_log_prob, where=idx_not_missing) / batch_size
     )
@@ -233,7 +281,8 @@ def ssvae_loss(
         [
             batch_unsupervised_loss,
             batch_supervised_loss,
-            predictor_factor * batch_supervised_target_log_prob_loss,
+            predictor_factor
+            * (batch_supervised_target_log_prob_loss + batch_supervised_median_loss),
         ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))
@@ -248,6 +297,7 @@ def ssvae_loss(
             batch_unsupervised_reconstruction_log_prob,
             batch_supervised_loss,
             batch_supervised_target_log_prob_loss,
+            batch_supervised_median_loss,
             batch_supervised_target_log_prob,
             batch_supervised_target_log_prior,
             batch_supervised_latent_log_prior,
