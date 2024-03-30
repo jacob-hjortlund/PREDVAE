@@ -156,6 +156,11 @@ class GaussianMixtureCoder(Module):
         log_probs = jax.nn.log_softmax(logits)
         return jax.scipy.special.logsumexp(log_probs + log_normals, axis=-1)
 
+    def cdf(self, x, logits, mu, log_sigma):
+        cdfs = jstats.norm.cdf(x, loc=mu, scale=jnp.exp(log_sigma))
+        probs = jax.nn.softmax(logits, axis=-1)
+        return jnp.sum(probs * cdfs, axis=-1)
+
     def __call__(
         self,
         x: ArrayLike,
