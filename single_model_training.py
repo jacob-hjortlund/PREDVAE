@@ -33,17 +33,20 @@ from optax import contrib as optax_contrib
 
 # Model Config
 
-RUN_NAME = "E325"
+RUN_NAME = "SSVAE"
 INPUT_SIZE = 27
 LATENT_SIZE = 15
 PREDICTOR_SIZE = 1
 USE_SPEC_NORM = True
+NUM_POWER_ITERATIONS = 5
+LAYERS = [2048, 1024, 512]
+N_LAYERS = 3
 
 # Training Config
 
 SEED = 5678
-EPOCHS = 325
-N_DECAY = 10
+EPOCHS = 20
+WARMUP_EPOCHS = 5
 INIT_LEARNING_RATE = 5e-3
 FINAL_LEARNING_RATE = 5e-6
 BATCH_SIZE = 1024
@@ -231,7 +234,9 @@ print(
     f"Expected No of Val Batches: {expected_n_val_spec_batches} / {expected_n_val_photo_batches}\n"
 )
 
-# ----------------------------- CREATE DATASETS -----------------------------
+###################################################################################
+############################ CREATE DATASETS ######################################
+###################################################################################
 
 
 train_spec_dataset = data.SpectroPhotometricDataset(
@@ -353,37 +358,62 @@ val_iterator = data.make_spectrophotometric_iterator(
 ################################### MODEL #########################################
 ###################################################################################
 
-predictor_key, encoder_key, decoder_key, RNG_KEY = jr.split(RNG_KEY, 4)
+(
+    predictor_key,
+    encoder_input_key,
+    encoder_key,
+    decoder_input_key,
+    decoder_key,
+    RNG_KEY,
+) = jr.split(RNG_KEY, 6)
 
 predictor = nn.GaussianCoder(
     INPUT_SIZE,
     PREDICTOR_SIZE,
-    [2048, 1024, 512],
-    3,
+    LAYERS,
+    N_LAYERS,
     jax.nn.tanh,
     predictor_key,
     USE_SPEC_NORM,
+    NUM_POWER_ITERATIONS
+)
+
+encoder_input_layer = nn.InputLayer(
+    x_features=INPUT_SIZE,
+    y_features=PREDICTOR_SIZE,
+    out_features=INPUT_SIZE + PREDICTOR_SIZE,
+    key=encoder_input_key,
 )
 
 encoder = nn.GaussianCoder(
     INPUT_SIZE + PREDICTOR_SIZE,
     LATENT_SIZE,
-    [2048, 1024, 512],
-    3,
+    LAYERS,
+    N_LAYERS,
     jax.nn.tanh,
     encoder_key,
     USE_SPEC_NORM,
+    NUM_POWER_ITERATIONS
+)
+
+decoder_input_layer = nn.InputLayer(
+    x_features=LATENT_SIZE,
+    y_features=PREDICTOR_SIZE,
+    out_features=LATENT_SIZE + PREDICTOR_SIZE,
+    key=decoder_input_key,
 )
 
 decoder = nn.GaussianCoder(
     LATENT_SIZE + PREDICTOR_SIZE,
     INPUT_SIZE,
-    [2048, 1024, 512],
-    3,
+    LAYERS,
+    N_LAYERS,
     jax.nn.tanh,
     decoder_key,
     USE_SPEC_NORM,
+    NUM_POWER_ITERATIONS
 )
+
 
 latent_prior = nn.Gaussian(
     mu=jnp.zeros(LATENT_SIZE),
@@ -396,22 +426,23 @@ target_prior = nn.Gaussian(
 )
 
 ssvae, input_state = eqx.nn.make_with_state(nn.SSVAE)(
-    encoder, decoder, predictor, latent_prior, target_prior
-)
-
-filter_spec = tree_map(lambda _: True, ssvae)
-filter_spec = eqx.tree_at(
-    lambda tree: (tree.latent_prior.mu, tree.latent_prior.log_sigma),
-    filter_spec,
-    replace=(False, False),
+    encoder,
+    decoder,
+    predictor,
+    latent_prior,
+    target_prior,
+    encoder_input_layer=encoder_input_layer,
+    decoder_input_layer=decoder_input_layer,
 )
 
 ###################################################################################
 ################################# TRAINING ########################################
 ###################################################################################
 
+filter_spec = tree_map(lambda _: True, ssvae)
+
 lr_schedule = optax.warmup_cosine_decay_schedule(
-    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, 5, EPOCHS - 5, FINAL_LEARNING_RATE
+    FINAL_LEARNING_RATE, INIT_LEARNING_RATE, WARMUP_EPOCHS, EPOCHS - WARMUP_EPOCHS, FINAL_LEARNING_RATE
 )
 optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -869,6 +900,7 @@ for epoch in range(EPOCHS):
         best_val_loss = epoch_val_loss
         best_val_epoch = epoch
         training.save(SAVE_DIR / "best_model.pkl", ssvae)
+        training.save(SAVE_DIR / "best_model_state.pkl", input_state)
 
     if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
         print(f"Early stopping at epoch {epoch}")
@@ -888,6 +920,8 @@ print(
 )
 
 training.save(SAVE_DIR / "final_model.pkl", ssvae)
+training.save(SAVE_DIR / "final_model_state.pkl", input_state)
+
 
 train_losses = jnp.asarray(train_loss)
 val_losses = jnp.asarray(val_loss)
