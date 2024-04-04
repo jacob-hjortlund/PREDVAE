@@ -512,10 +512,10 @@ def main(cfg: DictConfig):
             "alpha": ALPHA,
             "missing_target_value": cfg["data_config"]["missing_target_value"],
             "vae_factor": 1.0,
-            "beta": cfg["model_config"]["beta"],
+            "beta": cfg["training_config"]["beta"],
             "predictor_factor": 0.0,
             "target_factor": 0.0,
-            "n_samples": cfg["model_config"]["n_mc_samples"],
+            "n_samples": cfg["training_config"]["n_mc_samples"],
         }
         pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -917,9 +917,12 @@ def main(cfg: DictConfig):
                 ssvae,
                 "predictor",
                 freeze_x=True,
-                freeze_y=True,
+                freeze_y=False,
                 filter_spec=filter_spec,
                 inverse=True,
+            )
+            ssvae = nn.init_submodule_inputs(
+                ssvae, "predictor", RNG_KEY, init_x=False, init_y=True, init_value=0.0
             )
         else:
             filter_spec = nn.freeze_submodule_inputs(
@@ -943,7 +946,7 @@ def main(cfg: DictConfig):
             "beta": cfg["training_config"]["beta"],
             "predictor_factor": 0.0,
             "target_factor": 1.0,
-            "n_samples": cfg["model_config"]["n_mc_samples"],
+            "n_samples": cfg["training_config"]["n_mc_samples"],
         }
         pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -1420,7 +1423,7 @@ def main(cfg: DictConfig):
             "beta": cfg["training_config"]["beta"],
             "predictor_factor": 1.0,
             "target_factor": 1.0,
-            "n_samples": cfg["model_config"]["n_mc_samples"],
+            "n_samples": cfg["training_config"]["n_mc_samples"],
         }
         full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
