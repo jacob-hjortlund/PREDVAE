@@ -27,7 +27,7 @@ def main(cfg: DictConfig):
 
     DATA_DIR = Path(cfg["data_config"]["data_dir"])
     SAVE_DIR = Path(cfg["save_dir"]) / cfg["run_name"]
-    SAVE_DIR.mkdir(exist_ok=True)
+    SAVE_DIR.mkdir(exist_ok=True, parents=True)
     RNG_KEY = jax.random.PRNGKey(cfg["seed"])
 
     # ----------------------------- LOAD DATA -----------------------------
