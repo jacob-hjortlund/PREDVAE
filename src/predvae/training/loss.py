@@ -183,9 +183,7 @@ def ssvae_loss(
         reconstruction_log_prob,
     ) = loss_components.T
 
-    vae_loss = (
-        beta * (latent_log_prob - latent_log_prior) - reconstruction_log_prob
-    )
+    vae_loss = beta * (latent_log_prob - latent_log_prior) - reconstruction_log_prob
 
     unsupervised_losses = vae_loss + target_log_prob - target_log_prior
     supervised_losses = vae_loss - target_log_prior
@@ -240,10 +238,17 @@ def ssvae_loss(
     )
     supervised_losses = vae_loss - predictor_factor * target_log_prior
 
+    factored_batch_unsupervised_loss = (
+        jnp.sum(unsupervised_losses, where=idx_missing) / batch_size
+    )
+    factored_batch_supervised_loss = (
+        jnp.sum(supervised_losses, where=idx_not_missing) / batch_size
+    )
+
     sum_array = jnp.asarray(
         [
-            batch_unsupervised_loss,
-            batch_supervised_loss,
+            factored_batch_unsupervised_loss,
+            factored_batch_supervised_loss,
             target_factor * batch_supervised_target_log_prob_loss,
         ]
     )
