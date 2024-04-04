@@ -5,6 +5,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 
+from typing import Union
 from equinox import Module
 from jax.typing import ArrayLike
 from src.predvae.nn.mlp import MLP
@@ -418,5 +419,71 @@ class SSVAEv2(Module):
         z, z_pars, encoder_state = self.encode(x, input_state, encoder_key)
         y, y_pars, predictor_state = self.predict(x, z, encoder_state, predictor_key)
         x_hat, x_pars, decoder_state = self.decode(z, y, predictor_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
+
+
+class GMVAE(Module):
+
+    classifier: CategoricalCoder
+    encoder: GaussianCoder
+    decoder: GaussianCoder
+    encoder_input_layer: InputLayer
+    decoder_input_layer: InputLayer
+    latent_prior: GaussianCoder
+    classifier_prior: Module
+
+    def __init__(
+        self,
+        classifier: CategoricalCoder,
+        encoder: GaussianCoder,
+        decoder: GaussianCoder,
+        encoder_input_layer: InputLayer,
+        decoder_input_layer: InputLayer,
+        latent_prior: GaussianCoder,
+        classifier_prior: Module,
+    ):
+
+        self.classifier = classifier
+        self.encoder = encoder
+        self.decoder = decoder
+        self.encoder_input_layer = encoder_input_layer
+        self.decoder_input_layer = decoder_input_layer
+        self.latent_prior = latent_prior
+        self.classifier_prior = classifier_prior
+
+    def classify(self, x, input_state, rng_key):
+        y, y_pars, output_state = self.classifier(x, input_state, rng_key)
+
+        return y, y_pars, output_state
+
+    def encode(self, x, y, input_state, rng_key):
+        _x = self.encoder_input_layer(x, y)
+        z, z_pars, output_state = self.encoder(_x, input_state, rng_key)
+
+        return z, z_pars, output_state
+
+    def decode(self, z, y, input_state, rng_key):
+        _z = self.decoder_input_layer(z, y)
+        x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
+
+        return x_hat, x_pars, output_state
+
+    def unsupervised_call(self, x, y, input_state, rng_key):
+        return self(x, y, input_state, rng_key)
+
+    def supervised_call(self, x, y, input_state, rng_key):
+        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        _, y_pars, classifier_state = self.classify(x, input_state, classifier_key)
+        z, z_pars, encoder_state = self.encode(x, y, classifier_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
+
+    def __call__(self, x, y, input_state, rng_key):
+        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        y, y_pars, classifier_state = self.classify(x, input_state, classifier_key)
+        z, z_pars, encoder_state = self.encode(x, y, classifier_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
 
         return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
