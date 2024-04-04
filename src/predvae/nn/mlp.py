@@ -76,7 +76,6 @@ class SpectralNormedLinear(eqx.Module):
         return x, output_state
 
 
-# TODO: Add BatchNorm
 class MLP(eqx.Module):
     """
     Standard Multi-Layer Perceptron (MLP)
