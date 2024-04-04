@@ -59,6 +59,7 @@ class GaussianCoder(Module):
         activation: Callable,
         key: ArrayLike,
         use_spectral_norm: bool = False,
+        use_final_spectral_norm: bool = False,
         num_power_iterations: int = 1,
         **kwargs,
     ):
@@ -69,6 +70,7 @@ class GaussianCoder(Module):
             width_size=width,
             depth=depth,
             use_spectral_norm=use_spectral_norm,
+            use_final_spectral_norm=use_final_spectral_norm,
             num_power_iterations=num_power_iterations,
             key=key,
             activation=activation,
@@ -121,6 +123,7 @@ class GaussianMixtureCoder(Module):
         activation: Callable,
         key: ArrayLike,
         use_spectral_norm: bool = False,
+        use_final_spectral_norm: bool = False,
         num_power_iterations: int = 1,
     ):
         super().__init__()
@@ -132,6 +135,7 @@ class GaussianMixtureCoder(Module):
             key=key,
             activation=activation,
             use_spectral_norm=use_spectral_norm,
+            use_final_spectral_norm=use_final_spectral_norm,
             num_power_iterations=num_power_iterations,
         )
         self.input_size = input_size

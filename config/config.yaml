@@ -60,12 +60,14 @@ model_config:
   layers: [2048, 1024, 512]
   latent_size: 5
   predictor_size: 1
+  num_mixture_components: 3
   use_spec_norm: True
   use_final_spec_norm: False
   num_power_iterations: 5
   n_mc_samples: 1
   activation: 'relu'
   beta: 1.0
+  use_v2: False
 
 training_config:
   epochs: 20

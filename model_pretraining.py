@@ -19,22 +19,6 @@ from functools import partial
 from jax.tree_util import tree_map
 from omegaconf import DictConfig, OmegaConf
 
-# Model Config
-
-RUN_NAME = "SWISH_SSVAEv2_L5_M3_B1"
-INPUT_SIZE = 27
-LATENT_SIZE = 5
-PREDICTOR_SIZE = 1
-NUM_MIXTURE_COMPONENTS = 3
-USE_SPEC_NORM = True
-NUM_POWER_ITERATIONS = 5
-N_MC_SAMPLES = 1
-LAYERS = [2048, 1024, 512]
-N_LAYERS = len(LAYERS)
-ACTIVATION_FN = jax.nn.swish  # jax.nn.tanh
-BETA = 1.0
-USE_V2 = True
-
 # Training Config
 
 SEED = 5678
@@ -353,63 +337,70 @@ def main(cfg: DictConfig):
     ) = jr.split(RNG_KEY, 6)
 
     decoder_input_layer = nn.InputLayer(
-        x_features=LATENT_SIZE,
-        y_features=PREDICTOR_SIZE,
-        out_features=LATENT_SIZE + PREDICTOR_SIZE,
+        x_features=cfg["model_config"]["latent_size"],
+        y_features=cfg["model_config"]["predictor_size"],
+        out_features=cfg["model_config"]["latent_size"]
+        + cfg["model_config"]["predictor_size"],
         key=decoder_input_key,
     )
 
     decoder = nn.GaussianCoder(
-        LATENT_SIZE + PREDICTOR_SIZE,
-        INPUT_SIZE,
-        LAYERS,
-        N_LAYERS,
-        ACTIVATION_FN,
-        decoder_key,
-        USE_SPEC_NORM,
-        NUM_POWER_ITERATIONS,
+        input_size=cfg["model_config"]["latent_size"]
+        + cfg["model_config"]["predictor_size"],
+        output_size=cfg["model_config"]["input_size"],
+        width=cfg["model_config"]["layers"],
+        depth=len(cfg["model_config"]["layers"]),
+        activation=getattr(jax.nn, cfg["model_config"]["activation_fn"]),
+        key=decoder_key,
+        use_spectral_norm=cfg["model_config"]["use_spec_norm"],
+        use_final_spectral_norm=cfg["model_config"]["use_final_spec_norm"],
+        num_power_iterations=cfg["model_config"]["num_power_iterations"],
     )
 
     latent_prior = nn.Gaussian(
-        mu=jnp.zeros(LATENT_SIZE),
-        log_sigma=jnp.zeros(LATENT_SIZE),
+        mu=jnp.zeros(cfg["model_config"]["latent_size"]),
+        log_sigma=jnp.zeros(cfg["model_config"]["latent_size"]),
     )
 
     target_prior = nn.Gaussian(
-        mu=jnp.zeros(PREDICTOR_SIZE),
-        log_sigma=jnp.zeros(PREDICTOR_SIZE),
+        mu=jnp.zeros(cfg["model_config"]["predictor_size"]),
+        log_sigma=jnp.zeros(cfg["model_config"]["predictor_size"]),
     )
 
-    if USE_V2:
+    if cfg["model_config"]["use_v2"]:
 
         encoder = nn.GaussianCoder(
-            INPUT_SIZE,
-            LATENT_SIZE,
-            LAYERS,
-            N_LAYERS,
-            ACTIVATION_FN,
-            encoder_key,
-            USE_SPEC_NORM,
-            NUM_POWER_ITERATIONS,
+            input_size=cfg["model_config"]["input_size"],
+            output_size=cfg["model_config"]["latent_size"],
+            width=cfg["model_config"]["layers"],
+            depth=len(cfg["model_config"]["layers"]),
+            activation=getattr(jax.nn, cfg["model_config"]["activation_fn"]),
+            key=encoder_key,
+            use_spectral_norm=cfg["model_config"]["use_spec_norm"],
+            use_final_spectral_norm=cfg["model_config"]["use_final_spec_norm"],
+            num_power_iterations=cfg["model_config"]["num_power_iterations"],
         )
 
         predictor_input_layer = nn.InputLayer(
-            x_features=LATENT_SIZE,
-            y_features=INPUT_SIZE,
-            out_features=LATENT_SIZE + INPUT_SIZE,
+            x_features=cfg["model_config"]["latent_size"],
+            y_features=cfg["model_config"]["input_size"],
+            out_features=cfg["model_config"]["latent_size"]
+            + cfg["model_config"]["input_size"],
             key=encoder_input_key,
         )
 
         predictor = nn.GaussianMixtureCoder(
-            INPUT_SIZE + LATENT_SIZE,
-            PREDICTOR_SIZE,
-            LAYERS,
-            N_LAYERS,
-            NUM_MIXTURE_COMPONENTS,
-            ACTIVATION_FN,
-            predictor_key,
-            USE_SPEC_NORM,
-            NUM_POWER_ITERATIONS,
+            input_size=cfg["model_config"]["latent_size"]
+            + cfg["model_config"]["input_size"],
+            output_size=cfg["model_config"]["predictor_size"],
+            width=cfg["model_config"]["layers"],
+            depth=len(cfg["model_config"]["layers"]),
+            num_components=cfg["model_config"]["num_mixture_components"],
+            activation=getattr(jax.nn, cfg["model_config"]["activation_fn"]),
+            key=predictor_key,
+            use_spectral_norm=cfg["model_config"]["use_spec_norm"],
+            use_final_spectral_norm=cfg["model_config"]["use_final_spec_norm"],
+            num_power_iterations=cfg["model_config"]["num_power_iterations"],
         )
 
         SSVAE = partial(
@@ -422,33 +413,37 @@ def main(cfg: DictConfig):
     else:
 
         encoder_input_layer = nn.InputLayer(
-            x_features=INPUT_SIZE,
-            y_features=PREDICTOR_SIZE,
-            out_features=INPUT_SIZE + PREDICTOR_SIZE,
+            x_features=cfg["model_config"]["input_size"],
+            y_features=cfg["model_config"]["predictor_size"],
+            out_features=cfg["model_config"]["input_size"]
+            + cfg["model_config"]["predictor_size"],
             key=encoder_input_key,
         )
 
         encoder = nn.GaussianCoder(
-            INPUT_SIZE + PREDICTOR_SIZE,
-            LATENT_SIZE,
-            LAYERS,
-            N_LAYERS,
-            ACTIVATION_FN,
-            encoder_key,
-            USE_SPEC_NORM,
-            NUM_POWER_ITERATIONS,
+            input_size=cfg["model_config"]["input_size"]
+            + cfg["model_config"]["predictor_size"],
+            output_size=cfg["model_config"]["latent_size"],
+            width=cfg["model_config"]["layers"],
+            depth=len(cfg["model_config"]["layers"]),
+            activation=getattr(jax.nn, cfg["model_config"]["activation_fn"]),
+            key=encoder_key,
+            use_spectral_norm=cfg["model_config"]["use_spec_norm"],
+            use_final_spectral_norm=cfg["model_config"]["use_final_spec_norm"],
+            num_power_iterations=cfg["model_config"]["num_power_iterations"],
         )
 
         predictor = nn.GaussianMixtureCoder(
-            INPUT_SIZE,
-            PREDICTOR_SIZE,
-            LAYERS,
-            N_LAYERS,
-            NUM_MIXTURE_COMPONENTS,
-            ACTIVATION_FN,
-            predictor_key,
-            USE_SPEC_NORM,
-            NUM_POWER_ITERATIONS,
+            input_size=cfg["model_config"]["input_size"],
+            output_size=cfg["model_config"]["predictor_size"],
+            width=cfg["model_config"]["layers"],
+            depth=len(cfg["model_config"]["layers"]),
+            num_components=cfg["model_config"]["num_mixture_components"],
+            activation=getattr(jax.nn, cfg["model_config"]["activation_fn"]),
+            key=predictor_key,
+            use_spectral_norm=cfg["model_config"]["use_spec_norm"],
+            use_final_spectral_norm=cfg["model_config"]["use_final_spec_norm"],
+            num_power_iterations=cfg["model_config"]["num_power_iterations"],
         )
 
         SSVAE = partial(
@@ -496,7 +491,7 @@ def main(cfg: DictConfig):
         )
         ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", True)
 
-        if USE_V2:
+        if cfg["model_config"]["use_v2"]:
             filter_spec = nn.freeze_submodule_inputs(
                 ssvae,
                 "predictor",
@@ -526,9 +521,9 @@ def main(cfg: DictConfig):
             "alpha": ALPHA,
             "missing_target_value": cfg["data_config"]["missing_target_value"],
             "vae_factor": 1.0,
-            "beta": BETA,
+            "beta": cfg["model_config"]["beta"],
             "predictor_factor": 0.0,
-            "n_samples": N_MC_SAMPLES,
+            "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -859,7 +854,7 @@ def main(cfg: DictConfig):
         ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", True)
         ssvae = nn.set_submodule_inference_mode(ssvae, "decoder", True)
 
-        if USE_V2:
+        if cfg["model_config"]["use_v2"]:
             filter_spec = nn.freeze_submodule_inputs(
                 ssvae,
                 "predictor",
@@ -889,7 +884,7 @@ def main(cfg: DictConfig):
             "vae_factor": 0.0,
             "beta": 1.0,
             "predictor_factor": 1.0,
-            "n_samples": N_MC_SAMPLES,
+            "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
@@ -1253,7 +1248,7 @@ def main(cfg: DictConfig):
         ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", False)
         ssvae = nn.set_submodule_inference_mode(ssvae, "decoder", False)
 
-        if USE_V2:
+        if cfg["model_config"]["use_v2"]:
             filter_spec = nn.freeze_submodule_inputs(
                 ssvae,
                 "predictor",
@@ -1292,7 +1287,7 @@ def main(cfg: DictConfig):
             "vae_factor": 1.0,
             "beta": 1.0,
             "predictor_factor": 1.0,
-            "n_samples": N_MC_SAMPLES,
+            "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
 
