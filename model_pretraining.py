@@ -21,20 +21,20 @@ from omegaconf import DictConfig, OmegaConf
 
 # Training Config
 
-SEED = 5678
-EPOCHS = 20
-WARMUP_EPOCHS = 1
-INIT_LEARNING_RATE = 5e-2
-FINAL_LEARNING_RATE = 5e-5
-BATCH_SIZE = 1024
-LOG_EVERY = 1
+# SEED = 5678
+# cfg['training_config']['epochs'] = 20
+# WARMUP_EPOCHS = 1
+# INIT_LEARNING_RATE = 5e-2
+# FINAL_LEARNING_RATE = 5e-5
+# BATCH_SIZE = 1024
+# LOG_EVERY = 1
 
-PRETRAIN_VAE = False
-PRETRAIN_PREDICTOR = False
-TRAIN_FULL_MODEL = True
+# PRETRAIN_VAE = False
+# PRETRAIN_PREDICTOR = False
+# TRAIN_FULL_MODEL = True
 
-USE_EARLY_STOPPING = False
-EARLY_STOPPING_PATIENCE = 10
+# cfg['training_config']['use_early_stopping'] = False
+# cfg['training_config']['early_stopping_patience'] = 10
 
 
 @hydra.main(config_path="config", config_name="config")
@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
     DATA_DIR = Path(cfg["data_config"]["data_dir"])
     SAVE_DIR = Path(cfg["save_dir"]) / cfg["run_name"]
     SAVE_DIR.mkdir(exist_ok=True)
-    RNG_KEY = jax.random.PRNGKey(SEED)
+    RNG_KEY = jax.random.PRNGKey(cfg["seed"])
 
     # ----------------------------- LOAD DATA -----------------------------
 
@@ -60,8 +60,12 @@ def main(cfg: DictConfig):
     n_photo = photo_df.shape[0]
     spec_ratio = n_spec / (n_spec + n_photo)
 
-    PHOTOMETRIC_BATCH_SIZE = np.round(BATCH_SIZE * (1 - spec_ratio)).astype(int)
-    SPECTROSCOPIC_BATCH_SIZE = BATCH_SIZE - PHOTOMETRIC_BATCH_SIZE
+    PHOTOMETRIC_BATCH_SIZE = np.round(
+        cfg["training_config"]["batch_size"] * (1 - spec_ratio)
+    ).astype(int)
+    SPECTROSCOPIC_BATCH_SIZE = (
+        cfg["training_config"]["batch_size"] - PHOTOMETRIC_BATCH_SIZE
+    )
     ALPHA = (
         PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE
     ) * SPECTROSCOPIC_BATCH_SIZE
@@ -74,7 +78,7 @@ def main(cfg: DictConfig):
     print(f"\nN Spec: {n_spec}")
     print(f"N Photo: {n_photo}")
     print(f"Spec Ratio: {spec_ratio}")
-    print(f"Batch Size: {BATCH_SIZE}")
+    print(f"Batch Size: {cfg['training_config']['batch_size']}")
     print(f"Photometric Batch Size: {PHOTOMETRIC_BATCH_SIZE}")
     print(f"Spectroscopic Batch Size: {SPECTROSCOPIC_BATCH_SIZE}")
     print(f"Batch Size Ratio: {batch_size_ratio}")
@@ -474,11 +478,10 @@ def main(cfg: DictConfig):
     ############################### PRE-TRAIN VAE #####################################
     ###################################################################################
 
-    if PRETRAIN_VAE:
+    if cfg["training_config"]["pretrain_vae"]:
 
         val_step_time = 0
         train_step_time = 0
-        prediction_step_time = 0
         epoch_time = 0
 
         filter_spec = nn.freeze_prior(ssvae, space="target", filter_spec=filter_spec)
@@ -508,11 +511,11 @@ def main(cfg: DictConfig):
             )
 
         lr_schedule = optax.warmup_cosine_decay_schedule(
-            FINAL_LEARNING_RATE,
-            INIT_LEARNING_RATE,
-            WARMUP_EPOCHS,
-            EPOCHS - WARMUP_EPOCHS,
-            FINAL_LEARNING_RATE,
+            cfg["training_config"]["final_lr"],
+            cfg["training_config"]["init_lr"],
+            cfg["training_config"]["warmup"],
+            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
         optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -657,11 +660,10 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(EPOCHS):
+        for epoch in range(cfg["training_config"]["epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
-            end_of_prediction_split = False
 
             train_batches = 0
             val_batches = 0
@@ -669,8 +671,6 @@ def main(cfg: DictConfig):
             epoch_train_aux = []
             epoch_val_loss = []
             epoch_val_aux = []
-            epoch_val_target_means = []
-            epoch_val_target_stds = []
 
             t0_epoch = time.time()
 
@@ -788,7 +788,11 @@ def main(cfg: DictConfig):
                     SAVE_DIR / "best_pretrained_vae_optimizer_state", optimizer_state
                 )
 
-            if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
+            if (
+                cfg["training_config"]["use_early_stopping"]
+                and epoch - best_val_epoch
+                > cfg["training_config"]["early_stopping_patience"]
+            ):
                 print(f"Early stopping at epoch {epoch}, setting model to best epoch")
                 ssvae = training.load(SAVE_DIR / "best_pretrained_vae.pkl", ssvae)
                 input_state = training.load(
@@ -799,9 +803,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / EPOCHS
-        train_step_time = train_step_time / EPOCHS
-        epoch_time = epoch_time / EPOCHS
+        val_step_time = val_step_time / cfg["training_config"]["epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["epochs"]
         train_time = time.time() - t0
 
         print(
@@ -833,7 +837,7 @@ def main(cfg: DictConfig):
     ############################ PRE-TRAIN PREDICTOR ##################################
     ###################################################################################
 
-    if PRETRAIN_PREDICTOR:
+    if cfg["training_config"]["pretrain_predictor"]:
 
         filter_spec = nn.freeze_prior(
             ssvae, space="target", filter_spec=filter_spec, inverse=True
@@ -869,11 +873,11 @@ def main(cfg: DictConfig):
             )
 
         lr_schedule = optax.warmup_cosine_decay_schedule(
-            FINAL_LEARNING_RATE,
-            INIT_LEARNING_RATE,
-            WARMUP_EPOCHS,
-            EPOCHS - WARMUP_EPOCHS,
-            FINAL_LEARNING_RATE,
+            cfg["training_config"]["final_lr"],
+            cfg["training_config"]["init_lr"],
+            cfg["training_config"]["warmup"],
+            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
         optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -901,7 +905,6 @@ def main(cfg: DictConfig):
 
         val_step_time = 0
         train_step_time = 0
-        prediction_step_time = 0
         epoch_time = 0
         best_val_loss = jnp.inf
         best_val_epoch = -1
@@ -1025,7 +1028,7 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(EPOCHS):
+        for epoch in range(cfg["training_config"]["epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
@@ -1159,7 +1162,11 @@ def main(cfg: DictConfig):
                     optimizer_state,
                 )
 
-            if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
+            if (
+                cfg["training_config"]["use_early_stopping"]
+                and epoch - best_val_epoch
+                > cfg["training_config"]["early_stopping_patience"]
+            ):
                 print(f"Early stopping at epoch {epoch}, setting model to best epoch")
                 ssvae = training.load(SAVE_DIR / "best_pretrained_predictor.pkl", ssvae)
                 input_state = training.load(
@@ -1171,9 +1178,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / EPOCHS
-        train_step_time = train_step_time / EPOCHS
-        epoch_time = epoch_time / EPOCHS
+        val_step_time = val_step_time / cfg["training_config"]["epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["epochs"]
         train_time = time.time() - t0
 
         print(
@@ -1217,7 +1224,7 @@ def main(cfg: DictConfig):
     ############################## TRAIN FULL MODEL ###################################
     ###################################################################################
 
-    if TRAIN_FULL_MODEL:
+    if cfg["training_config"]["train_full_model"]:
 
         filter_spec = nn.freeze_submodule(
             ssvae, "encoder", filter_spec=filter_spec, inverse=True
@@ -1272,11 +1279,11 @@ def main(cfg: DictConfig):
             )
 
         lr_schedule = optax.warmup_cosine_decay_schedule(
-            FINAL_LEARNING_RATE,
-            INIT_LEARNING_RATE,
-            WARMUP_EPOCHS,
-            EPOCHS - WARMUP_EPOCHS,
-            FINAL_LEARNING_RATE,
+            cfg["training_config"]["final_lr"],
+            cfg["training_config"]["init_lr"],
+            cfg["training_config"]["warmup"],
+            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
         optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
@@ -1428,7 +1435,7 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(EPOCHS):
+        for epoch in range(cfg["training_config"]["epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
@@ -1557,7 +1564,11 @@ def main(cfg: DictConfig):
                 training.save(SAVE_DIR / "best_model_state.pkl", input_state)
                 training.save(SAVE_DIR / "best_model_optimizer_state", optimizer_state)
 
-            if USE_EARLY_STOPPING and epoch - best_val_epoch > EARLY_STOPPING_PATIENCE:
+            if (
+                cfg["training_config"]["use_early_stopping"]
+                and epoch - best_val_epoch
+                > cfg["training_config"]["early_stopping_patience"]
+            ):
                 print(f"Early stopping at epoch {epoch}, setting model to best epoch")
                 ssvae = training.load(SAVE_DIR / "best_model.pkl", ssvae)
                 input_state = training.load(
@@ -1568,9 +1579,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / EPOCHS
-        train_step_time = train_step_time / EPOCHS
-        epoch_time = epoch_time / EPOCHS
+        val_step_time = val_step_time / cfg["training_config"]["epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["epochs"]
         train_time = time.time() - t0
 
         print(
