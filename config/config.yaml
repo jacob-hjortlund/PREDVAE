@@ -1,0 +1,80 @@
+defaults:
+  - _self_
+  - model_config: baseline
+
+seed: 5678
+run_name: 'baseline'
+save_dir: '/home/it4i-josman/PREDVAE/Results/'
+
+data_config:
+  validation_fraction: 0.1
+  shuffle: True
+  drop_last: True
+  resample_photometry: True
+  missing_target_value: -9999.0
+  data_dir: '/scratch/project/dd-23-98/Base/'
+  psf_columns: [
+    'psfmag_u',
+    'psfmag_g',
+    'psfmag_r',
+    'psfmag_i',
+    'psfmag_z',
+    'w1mag',
+    'w2mag',
+  ]
+  psf_err_columns: [
+    'psfmagerr_u',
+    'psfmagerr_g',
+    'psfmagerr_r',
+    'psfmagerr_i',
+    'psfmagerr_z',
+    'w1sigmag',
+    'w2sigmag',
+  ]
+  model_columns: [
+    'modelmag_u',
+    'modelmag_g',
+    'modelmag_r',
+    'modelmag_i',
+    'modelmag_z',
+    'w1mpro',
+    'w2mpro',
+  ]
+  model_err_columns: [
+    'modelmagerr_u',
+    'modelmagerr_g',
+    'modelmagerr_r',
+    'modelmagerr_i',
+    'modelmagerr_z',
+    'w1sigmpro',
+    'w2sigmpro',
+  ]
+  additional_columns: [
+    'extinction_i'
+  ]
+  z_column: ['z']
+  objid_column: ['objid']
+
+model_config:
+  input_size: 27
+  layers: [2048, 1024, 512]
+  latent_size: 5
+  predictor_size: 1
+  use_spec_norm: True
+  use_final_spec_norm: False
+  num_power_iterations: 5
+  n_mc_samples: 1
+  activation: 'relu'
+  beta: 1.0
+
+training_config:
+  epochs: 20
+  warmup: 1
+  init_lr: 0.05
+  final_lr: 0.00005
+  batch_size: 1024
+  pretrain_vae: False
+  pretrain_predictor: False
+  train_full_model: True
+  use_early_stopping: False
+  early_stopping_patience: 10
