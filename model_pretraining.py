@@ -19,23 +19,6 @@ from functools import partial
 from jax.tree_util import tree_map
 from omegaconf import DictConfig, OmegaConf
 
-# Training Config
-
-# SEED = 5678
-# cfg['training_config']['epochs'] = 20
-# WARMUP_EPOCHS = 1
-# INIT_LEARNING_RATE = 5e-2
-# FINAL_LEARNING_RATE = 5e-5
-# BATCH_SIZE = 1024
-# LOG_EVERY = 1
-
-# PRETRAIN_VAE = False
-# PRETRAIN_PREDICTOR = False
-# TRAIN_FULL_MODEL = True
-
-# cfg['training_config']['use_early_stopping'] = False
-# cfg['training_config']['early_stopping_patience'] = 10
-
 
 @hydra.main(config_path="config", config_name="config")
 def main(cfg: DictConfig):
