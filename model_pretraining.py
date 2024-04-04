@@ -23,6 +23,8 @@ from omegaconf import DictConfig, OmegaConf
 @hydra.main(config_path="config", config_name="config")
 def main(cfg: DictConfig):
 
+    print(OmegaConf.to_yaml(cfg),"\n")
+
     DATA_DIR = Path(cfg["data_config"]["data_dir"])
     SAVE_DIR = Path(cfg["save_dir"]) / cfg["run_name"]
     SAVE_DIR.mkdir(exist_ok=True)
