@@ -75,9 +75,6 @@ def _sample_loss(
 
     reconstruction_log_prob = model.decoder.log_prob(x, *x_pars)
 
-    #median = estimate_mixture_median(model, *y_pars)
-    #median_error = -((y - median) ** 2)
-
     loss_components = jnp.array(
         [
             target_log_prob,
@@ -134,9 +131,10 @@ def ssvae_loss(
     rng_key: ArrayLike,
     alpha: ArrayLike,
     beta: int = 1.0,
-    vae_factor: int = 1.0,
-    predictor_factor: int = 1.0,
     n_samples: int = 1,
+    predictor_factor: ArrayLike = 1.0,
+    target_factor: ArrayLike = 1.0,
+    vae_factor: ArrayLike = 1.0,
     missing_target_value: ArrayLike = -9999.0,
     target_transform: Callable = lambda x: x,
 ) -> Module:
@@ -239,7 +237,7 @@ def ssvae_loss(
         [
             batch_unsupervised_loss,
             batch_supervised_loss,
-            predictor_factor * batch_supervised_target_log_prob_loss,
+            target_factor * batch_supervised_target_log_prob_loss,
         ]
     )
     batch_loss = jnp.sum(sum_array, where=~jnp.isnan(sum_array))

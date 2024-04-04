@@ -244,73 +244,6 @@ def main(cfg: DictConfig):
     )
 
     ###################################################################################
-    ################################# DATALOADERS #####################################
-    ###################################################################################
-
-    train_photo_dataloader_key, train_spec_dataloader_key, RNG_KEY = jr.split(
-        RNG_KEY, 3
-    )
-
-    (
-        train_photometric_dataloader,
-        train_photometric_dataloader_state,
-    ) = data.make_dataloader(
-        train_photo_dataset,
-        batch_size=PHOTOMETRIC_BATCH_SIZE,
-        rng_key=train_photo_dataloader_key,
-        shuffle=cfg["data_config"]["shuffle"],
-        drop_last=cfg["data_config"]["drop_last"],
-    )
-
-    (
-        train_spectroscopic_dataloader,
-        train_spectroscopic_dataloader_state,
-    ) = data.make_dataloader(
-        train_spec_dataset,
-        batch_size=SPECTROSCOPIC_BATCH_SIZE,
-        rng_key=train_spec_dataloader_key,
-        shuffle=cfg["data_config"]["shuffle"],
-        drop_last=cfg["data_config"]["drop_last"],
-    )
-
-    train_iterator = data.make_spectrophotometric_iterator(
-        train_photometric_dataloader,
-        train_spectroscopic_dataloader,
-        train_dataset_statistics,
-        resample_photometry=True,
-    )
-
-    val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(RNG_KEY, 3)
-
-    (
-        val_photometric_dataloader,
-        val_photometric_dataloader_state,
-    ) = data.make_dataloader(
-        val_photo_dataset,
-        batch_size=PHOTOMETRIC_BATCH_SIZE,
-        rng_key=val_photo_dataloader_key,
-        shuffle=False,
-        drop_last=cfg["data_config"]["drop_last"],
-    )
-
-    (
-        val_spectroscopic_dataloader,
-        val_spectroscopic_dataloader_state,
-    ) = data.make_dataloader(
-        val_spec_dataset,
-        batch_size=SPECTROSCOPIC_BATCH_SIZE,
-        rng_key=val_spec_dataloader_key,
-        shuffle=False,
-        drop_last=cfg["data_config"]["drop_last"],
-    )
-
-    val_iterator = data.make_spectrophotometric_iterator(
-        val_photometric_dataloader,
-        val_spectroscopic_dataloader,
-        val_dataset_statistics,
-        resample_photometry=cfg["data_config"]["resample_photometry"],
-    )
-    ###################################################################################
     ################################### MODEL #########################################
     ###################################################################################
 
@@ -463,6 +396,76 @@ def main(cfg: DictConfig):
 
     if cfg["training_config"]["pretrain_vae"]:
 
+        ###################################################################################
+        ################################# DATALOADERS #####################################
+        ###################################################################################
+
+        train_photo_dataloader_key, train_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
+        )
+
+        (
+            train_photometric_dataloader,
+            train_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            train_photo_dataset,
+            batch_size=PHOTOMETRIC_BATCH_SIZE,
+            rng_key=train_photo_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            train_spectroscopic_dataloader,
+            train_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            train_spec_dataset,
+            batch_size=SPECTROSCOPIC_BATCH_SIZE,
+            rng_key=train_spec_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        train_iterator = data.make_spectrophotometric_iterator(
+            train_photometric_dataloader,
+            train_spectroscopic_dataloader,
+            train_dataset_statistics,
+            resample_photometry=True,
+        )
+
+        val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
+        )
+
+        (
+            val_photometric_dataloader,
+            val_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            val_photo_dataset,
+            batch_size=PHOTOMETRIC_BATCH_SIZE,
+            rng_key=val_photo_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            val_spectroscopic_dataloader,
+            val_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            val_spec_dataset,
+            batch_size=SPECTROSCOPIC_BATCH_SIZE,
+            rng_key=val_spec_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        val_iterator = data.make_spectrophotometric_iterator(
+            val_photometric_dataloader,
+            val_spectroscopic_dataloader,
+            val_dataset_statistics,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
+        )
+
         val_step_time = 0
         train_step_time = 0
         epoch_time = 0
@@ -509,6 +512,7 @@ def main(cfg: DictConfig):
             "vae_factor": 1.0,
             "beta": cfg["model_config"]["beta"],
             "predictor_factor": 0.0,
+            "target_factor": 0.0,
             "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         pretrain_vae_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
@@ -822,21 +826,86 @@ def main(cfg: DictConfig):
 
     if cfg["training_config"]["pretrain_predictor"]:
 
-        filter_spec = nn.freeze_prior(
-            ssvae, space="target", filter_spec=filter_spec, inverse=True
+        ###################################################################################
+        ################################# DATALOADERS #####################################
+        ###################################################################################
+
+        train_photo_dataloader_key, train_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
         )
+
+        (
+            train_photometric_dataloader,
+            train_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            train_photo_dataset,
+            batch_size=5,
+            rng_key=train_photo_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            train_spectroscopic_dataloader,
+            train_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            train_spec_dataset,
+            batch_size=cfg["training_config"]["batch_size"],
+            rng_key=train_spec_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        train_iterator = data.make_spectrophotometric_iterator(
+            train_photometric_dataloader,
+            train_spectroscopic_dataloader,
+            train_dataset_statistics,
+            resample_photometry=True,
+        )
+
+        val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
+        )
+
+        (
+            val_photometric_dataloader,
+            val_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            val_photo_dataset,
+            batch_size=5,
+            rng_key=val_photo_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            val_spectroscopic_dataloader,
+            val_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            val_spec_dataset,
+            batch_size=cfg["training_config"]["batch_size"],
+            rng_key=val_spec_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        val_iterator = data.make_spectrophotometric_iterator(
+            val_photometric_dataloader,
+            val_spectroscopic_dataloader,
+            val_dataset_statistics,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
+        )
+
         filter_spec = nn.freeze_submodule(
             ssvae, "predictor", filter_spec=filter_spec, inverse=True
         )
+        filter_spec = nn.freeze_prior(ssvae, space="target", filter_spec=filter_spec)
         filter_spec = nn.freeze_submodule(ssvae, "encoder", filter_spec=filter_spec)
         filter_spec = nn.freeze_submodule(ssvae, "decoder", filter_spec=filter_spec)
         filter_spec = nn.freeze_submodule_inputs(
             ssvae, "decoder", freeze_x=True, freeze_y=True, filter_spec=filter_spec
         )
 
-        ssvae = nn.init_submodule_inputs(
-            ssvae, "decoder", RNG_KEY, init_x=False, init_y=True, init_value=0.0
-        )
         ssvae = nn.set_submodule_inference_mode(ssvae, "predictor", False)
         ssvae = nn.set_submodule_inference_mode(ssvae, "encoder", True)
         ssvae = nn.set_submodule_inference_mode(ssvae, "decoder", True)
@@ -869,8 +938,9 @@ def main(cfg: DictConfig):
             "alpha": ALPHA,
             "missing_target_value": cfg["data_config"]["missing_target_value"],
             "vae_factor": 0.0,
-            "beta": 1.0,
-            "predictor_factor": 1.0,
+            "beta": cfg["training_config"]["beta"],
+            "predictor_factor": 0.0,
+            "target_factor": 1.0,
             "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         pretrain_predictor_loss_fn = partial(training.ssvae_loss, **loss_kwargs)
@@ -1209,6 +1279,76 @@ def main(cfg: DictConfig):
 
     if cfg["training_config"]["train_full_model"]:
 
+        ###################################################################################
+        ################################# DATALOADERS #####################################
+        ###################################################################################
+
+        train_photo_dataloader_key, train_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
+        )
+
+        (
+            train_photometric_dataloader,
+            train_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            train_photo_dataset,
+            batch_size=PHOTOMETRIC_BATCH_SIZE,
+            rng_key=train_photo_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            train_spectroscopic_dataloader,
+            train_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            train_spec_dataset,
+            batch_size=SPECTROSCOPIC_BATCH_SIZE,
+            rng_key=train_spec_dataloader_key,
+            shuffle=cfg["data_config"]["shuffle"],
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        train_iterator = data.make_spectrophotometric_iterator(
+            train_photometric_dataloader,
+            train_spectroscopic_dataloader,
+            train_dataset_statistics,
+            resample_photometry=True,
+        )
+
+        val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(
+            RNG_KEY, 3
+        )
+
+        (
+            val_photometric_dataloader,
+            val_photometric_dataloader_state,
+        ) = data.make_dataloader(
+            val_photo_dataset,
+            batch_size=PHOTOMETRIC_BATCH_SIZE,
+            rng_key=val_photo_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        (
+            val_spectroscopic_dataloader,
+            val_spectroscopic_dataloader_state,
+        ) = data.make_dataloader(
+            val_spec_dataset,
+            batch_size=SPECTROSCOPIC_BATCH_SIZE,
+            rng_key=val_spec_dataloader_key,
+            shuffle=False,
+            drop_last=cfg["data_config"]["drop_last"],
+        )
+
+        val_iterator = data.make_spectrophotometric_iterator(
+            val_photometric_dataloader,
+            val_spectroscopic_dataloader,
+            val_dataset_statistics,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
+        )
+
         filter_spec = nn.freeze_submodule(
             ssvae, "encoder", filter_spec=filter_spec, inverse=True
         )
@@ -1275,8 +1415,9 @@ def main(cfg: DictConfig):
             "alpha": ALPHA,
             "missing_target_value": cfg["data_config"]["missing_target_value"],
             "vae_factor": 1.0,
-            "beta": 1.0,
+            "beta": cfg["training_config"]["beta"],
             "predictor_factor": 1.0,
+            "target_factor": 1.0,
             "n_samples": cfg["model_config"]["n_mc_samples"],
         }
         full_loss_fn = partial(training.ssvae_loss, **loss_kwargs)

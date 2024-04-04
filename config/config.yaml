@@ -1,6 +1,7 @@
 defaults:
   - _self_
   - model_config: baseline
+  - training_config: baseline
 
 seed: 5678
 run_name: 'baseline'
