@@ -23,7 +23,7 @@ from omegaconf import DictConfig, OmegaConf
 @hydra.main(config_path="config", config_name="config")
 def main(cfg: DictConfig):
 
-    print(OmegaConf.to_yaml(cfg),"\n")
+    print(OmegaConf.to_yaml(cfg), "\n")
 
     DATA_DIR = Path(cfg["data_config"]["data_dir"])
     SAVE_DIR = Path(cfg["save_dir"]) / cfg["run_name"]
@@ -1732,3 +1732,7 @@ def main(cfg: DictConfig):
         np.save(SAVE_DIR / "full_val_losses.npy", model_predictor_val_losses)
         np.save(SAVE_DIR / "full_train_auxes.npy", model_predictor_train_auxes)
         np.save(SAVE_DIR / "full_val_auxes.npy", model_predictor_val_auxes)
+
+
+if __name__ == "__main__":
+    main()
