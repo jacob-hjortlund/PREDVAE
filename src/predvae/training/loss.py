@@ -191,7 +191,7 @@ def ssvae_loss(
         jnp.sum(unsupervised_losses, where=idx_missing) / batch_size
     )
     batch_unsupervised_target_log_prob = (
-        jnp.sum(target_log_prior, where=idx_missing) / batch_size
+        jnp.sum(target_log_prob, where=idx_missing) / batch_size
     )
     batch_unsupervised_target_log_prior = (
         jnp.sum(target_log_prior, where=idx_missing) / batch_size
