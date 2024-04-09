@@ -2,7 +2,6 @@ import jax
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-import optimistix as optx
 
 from jax import vmap
 from jax.lax import cond

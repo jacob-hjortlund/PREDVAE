@@ -1,6 +1,11 @@
+import os
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=64'
+
 import jax
 
 jax.config.update("jax_enable_x64", True)
+print(f"JAX backend: {jax.devices()}")
+
 import time
 import optax
 import hydra
@@ -37,11 +42,11 @@ def main(cfg: DictConfig):
     )
 
     spec_df = pd.read_csv(
-        DATA_DIR / "SDSS_spec_train.csv",
+        DATA_DIR / cfg['data_config']['spec_file'],
         # nrows=cfg["training_config"]["batch_size"] * 11,
     )
     photo_df = pd.read_csv(
-        DATA_DIR / "SDSS_photo_xmatch.csv",
+        DATA_DIR / cfg['data_config']['photo_file'],
         skiprows=[1],
         # nrows=cfg["training_config"]["batch_size"] * 11,
     )
@@ -389,6 +394,7 @@ def main(cfg: DictConfig):
         decoder_input_layer=decoder_input_layer,
     )
 
+    training.save(SAVE_DIR / "initial_model.pkl", ssvae)
     filter_spec = tree_map(lambda _: True, ssvae)
     filter_spec = nn.freeze_prior(ssvae, space="latent", filter_spec=filter_spec)
 
@@ -881,7 +887,7 @@ def main(cfg: DictConfig):
             val_photometric_dataloader_state,
         ) = data.make_dataloader(
             val_photo_dataset,
-            batch_size=5,
+            batch_size=cfg["training_config"]["batch_size"],
             rng_key=val_photo_dataloader_key,
             shuffle=False,
             drop_last=cfg["data_config"]["drop_last"],
