@@ -5,7 +5,7 @@ defaults:
 
 seed: 5678
 run_name: 'baseline'
-save_dir: '/home/it4i-josman/PREDVAE/Results/'
+save_dir: '/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/Results/' #'/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/Results/' #'/home/it4i-josman/PREDVAE/Results/'
 
 data_config:
   validation_fraction: 0.1
@@ -13,7 +13,7 @@ data_config:
   drop_last: True
   resample_photometry: True
   missing_target_value: -9999.0
-  data_dir: '/scratch/project/dd-23-98/Base/'
+  data_dir: '/groups/dark/osman/VAEPhotoZ/Data/Base/' #'/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/' #'/scratch/project/dd-23-98/Base/'
   psf_columns: [
     'psfmag_u',
     'psfmag_g',

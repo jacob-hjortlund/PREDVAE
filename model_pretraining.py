@@ -36,8 +36,15 @@ def main(cfg: DictConfig):
         "\n--------------------------------- LOADING DATA ---------------------------------\n"
     )
 
-    spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_train.csv")
-    photo_df = pd.read_csv(DATA_DIR / "SDSS_photo_xmatch.csv", skiprows=[1])
+    spec_df = pd.read_csv(
+        DATA_DIR / "SDSS_spec_train.csv",
+        # nrows=cfg["training_config"]["batch_size"] * 11,
+    )
+    photo_df = pd.read_csv(
+        DATA_DIR / "SDSS_photo_xmatch.csv",
+        skiprows=[1],
+        # nrows=cfg["training_config"]["batch_size"] * 11,
+    )
 
     # ----------------------------- RESET BATCH SIZES AND ALPHA -----------------------------
 
