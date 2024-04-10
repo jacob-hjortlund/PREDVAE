@@ -8,7 +8,7 @@ run_name: 'baseline'
 save_dir: '/groups/dark/osman/VAEPhotoZ/PREDVAE/Results/' #'/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/Results/' #'/home/it4i-josman/PREDVAE/Results/'
 
 data_config:
-  validation_fraction: 0.17
+  validation_fraction: 0.5
   shuffle: True
   drop_last: True
   resample_photometry: True
