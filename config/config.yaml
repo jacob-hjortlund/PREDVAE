@@ -13,7 +13,7 @@ data_config:
   drop_last: True
   resample_photometry: True
   missing_target_value: -9999.0
-  data_dir: '/groups/dark/osman/VAEPhotoZ/Data/Base/' #'/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/' #'/scratch/project/dd-23-98/Base/'
+  data_dir: '/groups/dark/osman/VAEPhotoZ/Data/Base/' #'/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/' # # #'/scratch/project/dd-23-98/Base/'
   spec_file: 'SDSS_spec_train_subset.csv'
   photo_file: 'SDSS_photo_subset.csv'
   psf_columns: [
@@ -83,3 +83,8 @@ training_config:
   train_full_model: True
   use_early_stopping: False
   early_stopping_patience: 10
+
+evaluation_config:
+  q_min: 0.01
+  q_max: 0.99
+  n_q: 1000
