@@ -1,6 +1,9 @@
 import os
 
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=64"
+# n_cpu = os.cpu_count()
+# print(f"Number of CPUs available: {n_cpu}")
+# env_flag = f"--xla_force_host_platform_device_count={n_cpu}"
+# os.environ["XLA_FLAGS"] = env_flag
 
 import jax
 
