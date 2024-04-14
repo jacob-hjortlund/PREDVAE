@@ -71,7 +71,9 @@ model_config:
   use_v2: False
 
 training_config:
-  epochs: 20
+  vae_epochs: 20
+  predictor_epochs: 20
+  full_model_epochs: 20
   warmup: 1
   init_lr: 0.005
   final_lr: 0.00005

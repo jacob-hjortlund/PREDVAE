@@ -1,5 +1,6 @@
 import os
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=64'
+
+os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=64"
 
 import jax
 
@@ -42,11 +43,11 @@ def main(cfg: DictConfig):
     )
 
     spec_df = pd.read_csv(
-        DATA_DIR / cfg['data_config']['spec_file'],
+        DATA_DIR / cfg["data_config"]["spec_file"],
         # nrows=cfg["training_config"]["batch_size"] * 11,
     )
     photo_df = pd.read_csv(
-        DATA_DIR / cfg['data_config']['photo_file'],
+        DATA_DIR / cfg["data_config"]["photo_file"],
         skiprows=[1],
         # nrows=cfg["training_config"]["batch_size"] * 11,
     )
@@ -515,7 +516,7 @@ def main(cfg: DictConfig):
             cfg["training_config"]["final_lr"],
             cfg["training_config"]["init_lr"],
             cfg["training_config"]["warmup"],
-            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["vae_epochs"] - cfg["training_config"]["warmup"],
             cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
@@ -662,7 +663,7 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(cfg["training_config"]["epochs"]):
+        for epoch in range(cfg["training_config"]["vae_epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
@@ -805,9 +806,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / cfg["training_config"]["epochs"]
-        train_step_time = train_step_time / cfg["training_config"]["epochs"]
-        epoch_time = epoch_time / cfg["training_config"]["epochs"]
+        val_step_time = val_step_time / cfg["training_config"]["vae_epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["vae_epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["vae_epochs"]
         train_time = time.time() - t0
 
         print(
@@ -946,7 +947,8 @@ def main(cfg: DictConfig):
             cfg["training_config"]["final_lr"],
             cfg["training_config"]["init_lr"],
             cfg["training_config"]["warmup"],
-            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["predictor_epochs"]
+            - cfg["training_config"]["warmup"],
             cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
@@ -1099,7 +1101,7 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(cfg["training_config"]["epochs"]):
+        for epoch in range(cfg["training_config"]["predictor_epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
@@ -1249,9 +1251,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / cfg["training_config"]["epochs"]
-        train_step_time = train_step_time / cfg["training_config"]["epochs"]
-        epoch_time = epoch_time / cfg["training_config"]["epochs"]
+        val_step_time = val_step_time / cfg["training_config"]["predictor_epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["predictor_epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["predictor_epochs"]
         train_time = time.time() - t0
 
         print(
@@ -1423,7 +1425,8 @@ def main(cfg: DictConfig):
             cfg["training_config"]["final_lr"],
             cfg["training_config"]["init_lr"],
             cfg["training_config"]["warmup"],
-            cfg["training_config"]["epochs"] - cfg["training_config"]["warmup"],
+            cfg["training_config"]["full_model_epochs"]
+            - cfg["training_config"]["warmup"],
             cfg["training_config"]["final_lr"],
         )
         optimizer = optax.adam(learning_rate=lr_schedule)
@@ -1577,7 +1580,7 @@ def main(cfg: DictConfig):
 
         t0 = time.time()
 
-        for epoch in range(cfg["training_config"]["epochs"]):
+        for epoch in range(cfg["training_config"]["full_model_epochs"]):
 
             end_of_train_split = False
             end_of_val_split = False
@@ -1721,9 +1724,9 @@ def main(cfg: DictConfig):
                 )
                 break
 
-        val_step_time = val_step_time / cfg["training_config"]["epochs"]
-        train_step_time = train_step_time / cfg["training_config"]["epochs"]
-        epoch_time = epoch_time / cfg["training_config"]["epochs"]
+        val_step_time = val_step_time / cfg["training_config"]["full_model_epochs"]
+        train_step_time = train_step_time / cfg["training_config"]["full_model_epochs"]
+        epoch_time = epoch_time / cfg["training_config"]["full_model_epochs"]
         train_time = time.time() - t0
 
         print(
