@@ -80,8 +80,8 @@ def main(cfg: DictConfig):
 
     spec_dataset = data.SpectroPhotometricDataset(
         spec_psf_photometry,
-        spec_psf_photometry_err,
         spec_model_photometry,
+        spec_psf_photometry_err,
         spec_model_photometry_err,
         spec_additional_info,
         spec_z,
