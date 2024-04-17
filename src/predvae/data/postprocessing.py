@@ -53,7 +53,6 @@ def post_process_batch(
     dataset_statistics: Union[DatasetStatistics, SpectroPhotometricStatistics],
     resample_fn: Callable,
     rng_key: ArrayLike,
-    normalize_redshift: bool = True,
 ):
 
     (

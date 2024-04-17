@@ -210,9 +210,10 @@ def plot_photo_vs_spec(
             alpha=0.5,
         )
 
-    ax.plot([0, 6], [0, 6], linestyle="--", color="black")
-    ax.set_xlim(0, 3)
-    ax.set_ylim(0, 3)
+    z_max = np.max(z_specs) + 0.1
+    ax.plot([0, z_max], [0, z_max], linestyle="--", color="black")
+    ax.set_xlim(0, z_max)
+    ax.set_ylim(0, z_max)
     ax.set_xlabel("Spec Z", fontsize=16)
     ax.set_ylabel("Photo Z", fontsize=16)
     ax.legend(fontsize=16)
