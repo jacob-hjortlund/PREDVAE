@@ -213,8 +213,8 @@ def main(cfg: DictConfig):
 
     train_spec_dataset = data.SpectroPhotometricDataset(
         spec_psf_photometry_train,
-        spec_psf_photometry_err_train,
         spec_model_photometry_train,
+        spec_psf_photometry_err_train,
         spec_model_photometry_err_train,
         spec_additional_info_train,
         spec_z_train,
@@ -223,8 +223,8 @@ def main(cfg: DictConfig):
 
     train_photo_dataset = data.SpectroPhotometricDataset(
         photo_psf_photometry_train,
-        photo_psf_photometry_err_train,
         photo_model_photometry_train,
+        photo_psf_photometry_err_train,
         photo_model_photometry_err_train,
         photo_additional_info_train,
         None,
@@ -239,8 +239,8 @@ def main(cfg: DictConfig):
 
     val_spec_dataset = data.SpectroPhotometricDataset(
         spec_psf_photometry_val,
-        spec_psf_photometry_err_val,
         spec_model_photometry_val,
+        spec_psf_photometry_err_val,
         spec_model_photometry_err_val,
         spec_additional_info_val,
         spec_z_val,
@@ -249,8 +249,8 @@ def main(cfg: DictConfig):
 
     val_photo_dataset = data.SpectroPhotometricDataset(
         photo_psf_photometry_val,
-        photo_psf_photometry_err_val,
         photo_model_photometry_val,
+        photo_psf_photometry_err_val,
         photo_model_photometry_err_val,
         photo_additional_info_val,
         None,
