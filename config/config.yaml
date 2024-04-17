@@ -11,7 +11,7 @@ data_config:
   validation_fraction: 0.5
   shuffle: True
   drop_last: True
-  resample_photometry: True
+  resample_photometry: False
   missing_target_value: -9999.0
   data_dir: '/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/' #'/groups/dark/osman/VAEPhotoZ/Data/Base/' # # # #'/scratch/project/dd-23-98/Base/'
   spec_file: 'SDSS_spec_train_subset.csv'
@@ -90,3 +90,4 @@ evaluation_config:
   q_min: 0.01
   q_max: 0.99
   n_q: 1000
+  n_sample: 20

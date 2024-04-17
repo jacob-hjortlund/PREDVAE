@@ -449,7 +449,7 @@ def main(cfg: DictConfig):
             train_photometric_dataloader,
             train_spectroscopic_dataloader,
             train_dataset_statistics,
-            resample_photometry=True,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
         )
 
         val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(
@@ -879,7 +879,7 @@ def main(cfg: DictConfig):
             train_photometric_dataloader,
             train_spectroscopic_dataloader,
             train_dataset_statistics,
-            resample_photometry=True,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
         )
 
         val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(
@@ -1336,7 +1336,7 @@ def main(cfg: DictConfig):
             train_photometric_dataloader,
             train_spectroscopic_dataloader,
             train_dataset_statistics,
-            resample_photometry=True,
+            resample_photometry=cfg["data_config"]["resample_photometry"],
         )
 
         val_photo_dataloader_key, val_spec_dataloader_key, RNG_KEY = jr.split(

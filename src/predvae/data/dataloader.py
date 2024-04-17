@@ -79,7 +79,9 @@ class DataLoader(eqx.Module):
         batch = jax.vmap(lambda i: self.dataset(i))(batch_indices)
 
         state = state.set(self.rng_key_index, rng_key)
-        state = state.set(self.reset_index, jnp.array(reset_condition))
+        state = state.set(
+            self.reset_index, jnp.logical_and(jnp.array(reset_condition), self.shuffle)
+        )
         state = state.set(self.indices_index, indices)
         state = state.set(self.position_index, position + self.batch_size)
 

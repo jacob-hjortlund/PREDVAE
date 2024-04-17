@@ -114,7 +114,11 @@ def main(cfg: DictConfig):
         dataloader, dataset_statistics, state, rng_key
     )
 
-    log10_zspec = spec_dataset.log10_redshift.squeeze()
+    descaled_log10_zspec = spec_dataset.log10_redshift.squeeze()
+    normed_log10_zspec = (
+        descaled_log10_zspec - dataset_statistics.log10_redshift_mean
+    ) / dataset_statistics.log10_redshift_std
+    zspec = 10**descaled_log10_zspec
     object_class = spec_df["class"].fillna("Unknown", inplace=False).values
     object_class = np.array(
         [
@@ -122,6 +126,17 @@ def main(cfg: DictConfig):
             for objid in spec_dataset.objid
         ]
     )
+
+    spec_z_sample_idxes = jr.choice(
+        jr.PRNGKey(420),
+        64 * 1024,  # GET RID OF MAGIC NUMBER
+        (cfg["evaluation_config"]["n_sample"],),
+        replace=False,
+    )
+    sample_normed_log10_zspec = normed_log10_zspec[spec_z_sample_idxes]
+    sample_descaled_log10_zspec = descaled_log10_zspec[spec_z_sample_idxes]
+    sample_zspec = zspec[spec_z_sample_idxes]
+    sample_object_classes = object_class[spec_z_sample_idxes]
 
     ###################################################################################
     ################################### MODEL #########################################
@@ -301,6 +316,7 @@ def main(cfg: DictConfig):
         pretrained_predictor = eqx.nn.inference_mode(pretrained_predictor)
 
         (
+            target_values,
             latent_means,
             latent_log_stds,
             y_weights,
@@ -341,70 +357,108 @@ def main(cfg: DictConfig):
             cfg["evaluation_config"]["n_q"],
         )
 
-        n_rows = 4
-        n_cols = 4
-        n_plot = n_rows * n_cols
-        n_objects = y_means.shape[0]
-        plot_key = jr.PRNGKey(420)
-        idx_sample = jr.choice(plot_key, n_objects, (n_plot,), replace=False)
-
-        fig, ax = plt.subplots(
-            ncols=n_cols, nrows=n_rows, figsize=(5 * n_cols, 5 * n_rows)
+        descaled_medians = (
+            medians * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
         )
-        ax = ax.flatten()
+        descaled_lowers = (
+            lower * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_uppers = (
+            upper * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_dist_means = (
+            y_means * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_dist_stds = y_stds * dataset_statistics.log10_redshift_std
+        descaled_dist_weights = y_weights
+        descaled_ppfs = (
+            ppfs * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
 
-        for i in range(n_plot):
+        z_medians = 10**descaled_medians
+        z_lowers = 10**descaled_lowers
+        z_uppers = 10**descaled_uppers
+        z_ppfs = 10**descaled_ppfs
 
-            idx_i = idx_sample[i]
-            z_plot = np.linspace(ppfs[0, idx_i] - 0.5, ppfs[-1, idx_i] + 0.5, 1024)
+        sample_medians = medians[spec_z_sample_idxes]
+        sample_lowers = lower[spec_z_sample_idxes]
+        sample_uppers = upper[spec_z_sample_idxes]
+        sample_ppfs = ppfs[:, spec_z_sample_idxes]
+        sample_dist_means = y_means[spec_z_sample_idxes]
+        sample_dist_stds = y_stds[spec_z_sample_idxes]
+        sample_dist_weights = y_weights[spec_z_sample_idxes]
 
-            ax[i].plot(
-                z_plot,
-                evaluation.gaussian_mixture_pdf(
-                    z_plot,
-                    y_means[idx_i],
-                    y_stds[idx_i],
-                    y_weights[idx_i],
-                ),
-                color=colors[0],
-            )
-            ax[i].axvline(log10_zspec[idx_i], color="k", linestyle="--", label="Spec Z")
+        sample_descaled_medians = descaled_medians[spec_z_sample_idxes]
+        sample_descaled_lowers = descaled_lowers[spec_z_sample_idxes]
+        sample_descaled_uppers = descaled_uppers[spec_z_sample_idxes]
+        sample_descaled_ppfs = descaled_ppfs[:, spec_z_sample_idxes]
+        sample_descaled_dist_means = descaled_dist_means[spec_z_sample_idxes]
+        sample_descaled_dist_stds = descaled_dist_stds[spec_z_sample_idxes]
+        sample_descaled_dist_weights = descaled_dist_weights[spec_z_sample_idxes]
 
-            y_lims = ax[i].get_ylim()
-            y_median = (y_lims[0] + y_lims[1]) / 2
-            median = medians[idx_i]
-            median_lower = lower[idx_i]
-            median_upper = upper[idx_i]
-            median_err = np.array([[median - median_lower], [median_upper - median]])
-            ax[i].errorbar(
-                median,
-                y_median,
-                xerr=median_err,
-                fmt="o",
-                color=colors[1],
-                label="Median",
-            )
+        sample_z_medians = z_medians[spec_z_sample_idxes]
+        sample_z_lowers = z_lowers[spec_z_sample_idxes]
+        sample_z_uppers = z_uppers[spec_z_sample_idxes]
+        sample_z_ppfs = z_ppfs[:, spec_z_sample_idxes]
 
-            y_mean = y_median + 0.1 * (y_lims[1] - y_lims[0])
-            mean = means[idx_i]
-            std = 1.96 * stds[idx_i]
-            ax[i].errorbar(
-                mean,
-                y_mean,
-                xerr=std,
-                fmt="o",
-                color=colors[2],
-                label="Mean",
-            )
+        evaluation.plot_sample_redshift_dists(
+            sample_normed_log10_zspec,
+            sample_object_classes,
+            sample_ppfs,
+            sample_dist_means,
+            sample_dist_stds,
+            sample_dist_weights,
+            sample_medians,
+            sample_lowers,
+            sample_uppers,
+            SAVE_DIR,
+            x_label=r"Rescaled log$_{10}(z)$",
+            file_name="pretrained_predictor_rescaled_log10z_sample_distributions",
+        )
 
-            ax[i].set_title(
-                f"Object Class: {object_class[idx_i]}, Redshift: {10**log10_zspec[idx_i]:.2f}",
-                fontsize=14,
-            )
-            ax[i].legend(loc="upper right")
+        evaluation.plot_sample_redshift_dists(
+            sample_descaled_log10_zspec,
+            sample_object_classes,
+            sample_descaled_ppfs,
+            sample_descaled_dist_means,
+            sample_descaled_dist_stds,
+            sample_descaled_dist_weights,
+            sample_descaled_medians,
+            sample_descaled_lowers,
+            sample_descaled_uppers,
+            SAVE_DIR,
+            x_label=r"log$_{10}(z)$",
+            file_name="pretrained_predictor_log10z_sample_distributions",
+        )
 
-        fig.tight_layout()
-        fig.savefig(SAVE_DIR / "pretrained_predictor_sample_distributions.png")
+        evaluation.plot_sample_redshift_dists(
+            sample_zspec,
+            sample_object_classes,
+            sample_z_ppfs,
+            sample_descaled_dist_means,
+            sample_descaled_dist_stds,
+            sample_descaled_dist_weights,
+            sample_z_medians,
+            sample_z_lowers,
+            sample_z_uppers,
+            SAVE_DIR,
+            x_label=r"$z$",
+            is_z_space=True,
+            file_name="pretrained_predictor_z_sample_distributions",
+        )
+
+        evaluation.plot_photo_vs_spec(
+            zspec,
+            object_class,
+            z_medians,
+            SAVE_DIR,
+            filename="pretrained_predictor_photo_vs_spec",
+        )
 
     if cfg["training_config"]["train_full_model"]:
 
@@ -415,6 +469,7 @@ def main(cfg: DictConfig):
         final_model = eqx.nn.inference_mode(final_model)
 
         (
+            target_values,
             latent_means,
             latent_log_stds,
             y_weights,
@@ -442,6 +497,119 @@ def main(cfg: DictConfig):
             filename="full_model_latent_space",
         )
         evaluation.qq_plot(ppf_fractions, SAVE_DIR, filename="full_model_qq_plot")
+
+        (means, stds), (medians, lower, upper) = evaluation.calculate_point_values(
+            y_weights,
+            y_means,
+            y_stds,
+            ppfs.T,
+            cfg["evaluation_config"]["q_min"],
+            cfg["evaluation_config"]["q_max"],
+            cfg["evaluation_config"]["n_q"],
+        )
+
+        descaled_medians = (
+            medians * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_lowers = (
+            lower * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_uppers = (
+            upper * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_dist_means = (
+            y_means * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+        descaled_dist_stds = y_stds * dataset_statistics.log10_redshift_std
+        descaled_dist_weights = y_weights
+        descaled_ppfs = (
+            ppfs * dataset_statistics.log10_redshift_std
+            + dataset_statistics.log10_redshift_mean
+        )
+
+        z_medians = 10**descaled_medians
+        z_lowers = 10**descaled_lowers
+        z_uppers = 10**descaled_uppers
+        z_ppfs = 10**descaled_ppfs
+
+        sample_medians = medians[spec_z_sample_idxes]
+        sample_lowers = lower[spec_z_sample_idxes]
+        sample_uppers = upper[spec_z_sample_idxes]
+        sample_ppfs = ppfs[:, spec_z_sample_idxes]
+        sample_dist_means = y_means[spec_z_sample_idxes]
+        sample_dist_stds = y_stds[spec_z_sample_idxes]
+        sample_dist_weights = y_weights[spec_z_sample_idxes]
+
+        sample_descaled_medians = descaled_medians[spec_z_sample_idxes]
+        sample_descaled_lowers = descaled_lowers[spec_z_sample_idxes]
+        sample_descaled_uppers = descaled_uppers[spec_z_sample_idxes]
+        sample_descaled_ppfs = descaled_ppfs[:, spec_z_sample_idxes]
+        sample_descaled_dist_means = descaled_dist_means[spec_z_sample_idxes]
+        sample_descaled_dist_stds = descaled_dist_stds[spec_z_sample_idxes]
+        sample_descaled_dist_weights = descaled_dist_weights[spec_z_sample_idxes]
+
+        sample_z_medians = z_medians[spec_z_sample_idxes]
+        sample_z_lowers = z_lowers[spec_z_sample_idxes]
+        sample_z_uppers = z_uppers[spec_z_sample_idxes]
+        sample_z_ppfs = z_ppfs[:, spec_z_sample_idxes]
+
+        evaluation.plot_sample_redshift_dists(
+            sample_normed_log10_zspec,
+            sample_object_classes,
+            sample_ppfs,
+            sample_dist_means,
+            sample_dist_stds,
+            sample_dist_weights,
+            sample_medians,
+            sample_lowers,
+            sample_uppers,
+            SAVE_DIR,
+            x_label=r"Rescaled log$_{10}(z)$",
+            file_name="full_model_rescaled_log10z_sample_distributions",
+        )
+
+        evaluation.plot_sample_redshift_dists(
+            sample_descaled_log10_zspec,
+            sample_object_classes,
+            sample_descaled_ppfs,
+            sample_descaled_dist_means,
+            sample_descaled_dist_stds,
+            sample_descaled_dist_weights,
+            sample_descaled_medians,
+            sample_descaled_lowers,
+            sample_descaled_uppers,
+            SAVE_DIR,
+            x_label=r"log$_{10}(z)$",
+            file_name="full_model_log10z_sample_distributions",
+        )
+
+        evaluation.plot_sample_redshift_dists(
+            sample_zspec,
+            sample_object_classes,
+            sample_z_ppfs,
+            sample_descaled_dist_means,
+            sample_descaled_dist_stds,
+            sample_descaled_dist_weights,
+            sample_z_medians,
+            sample_z_lowers,
+            sample_z_uppers,
+            SAVE_DIR,
+            x_label=r"$z$",
+            is_z_space=True,
+            file_name="full_model_z_sample_distributions",
+        )
+
+        evaluation.plot_photo_vs_spec(
+            zspec,
+            object_class,
+            z_medians,
+            SAVE_DIR,
+            filename="full_model_photo_vs_spec",
+        )
 
 
 if __name__ == "__main__":

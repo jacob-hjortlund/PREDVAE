@@ -31,8 +31,8 @@ def calculate_point_values(
 
     q = jnp.linspace(q_min, q_max, q_n)
     idx_median = jnp.argmin(jnp.abs(q - 0.5))
-    idx_lower = jnp.argmin(jnp.abs(q - 0.025))
-    idx_upper = jnp.argmin(jnp.abs(q - 0.975))
+    idx_lower = jnp.argmin(jnp.abs(q - 0.16))
+    idx_upper = jnp.argmin(jnp.abs(q - 0.84))
 
     medians = ppfs[idx_median]
     lower = ppfs[idx_lower]

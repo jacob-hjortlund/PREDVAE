@@ -213,6 +213,7 @@ def full_model_evaluator(
     )
 
     return (
+        target_values,
         latent_means,
         latent_log_stds,
         target_weights,
