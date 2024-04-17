@@ -15,7 +15,7 @@ data_config:
   missing_target_value: -9999.0
   data_dir: '/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/' #'/groups/dark/osman/VAEPhotoZ/Data/Base/' # # # #'/scratch/project/dd-23-98/Base/'
   spec_file: 'SDSS_spec_train_subset.csv'
-  photo_file: 'SDSS_photo_small_subset.csv'
+  photo_file: 'SDSS_photo_subset.csv'
   psf_columns: [
     'psfmag_u',
     'psfmag_g',
