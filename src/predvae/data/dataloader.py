@@ -44,6 +44,7 @@ class DataLoader(eqx.Module):
     def __call__(self, state: eqx.nn.State) -> tuple[Array, eqx.nn.State, bool]:
 
         reset = state.get(self.reset_index)
+        shuffle = jnp.logical_and(reset, self.shuffle)
         rng_key = state.get(self.rng_key_index)
 
         def shuffle_indices(indices, rng_key):
@@ -52,7 +53,7 @@ class DataLoader(eqx.Module):
 
         indices = state.get(self.indices_index)
         indices, rng_key = jax.lax.cond(
-            reset,
+            shuffle,
             lambda indices, rng_key: shuffle_indices(indices, rng_key),
             lambda indices, rng_key: (indices, rng_key),
             indices,
@@ -79,9 +80,7 @@ class DataLoader(eqx.Module):
         batch = jax.vmap(lambda i: self.dataset(i))(batch_indices)
 
         state = state.set(self.rng_key_index, rng_key)
-        state = state.set(
-            self.reset_index, jnp.logical_and(jnp.array(reset_condition), self.shuffle)
-        )
+        state = state.set(self.reset_index, reset_condition)
         state = state.set(self.indices_index, indices)
         state = state.set(self.position_index, position + self.batch_size)
 
