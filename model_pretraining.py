@@ -593,15 +593,12 @@ def main(cfg: DictConfig):
         def eval_step(
             ssvae,
             ssvae_state,
-            train_photo_dl_state,
-            train_spec_dl_state,
             val_photo_dl_state,
             val_spec_dl_state,
             rng_key,
         ):
 
-            train_resampling_key, val_resampling_key, rng_key = jr.split(rng_key, 3)
-            train_step_key, val_step_key = jr.split(rng_key)
+            resampling_key, step_key, rng_key = jr.split(rng_key, 3)
 
             (
                 x_val_split,
@@ -613,38 +610,13 @@ def main(cfg: DictConfig):
             ) = val_iterator(
                 val_photo_dl_state,
                 val_spec_dl_state,
-                val_resampling_key,
-            )
-
-            (
-                x_train_split,
-                y_train_split,
-                train_photo_dl_state,
-                train_spec_dl_state,
-                _,
-                _,
-            ) = train_iterator(
-                train_photo_dl_state,
-                train_spec_dl_state,
-                train_resampling_key,
-            )
-
-            (
-                train_loss_value,
-                ssvae_state,
-                train_loss_aux,
-            ) = _val_step(
-                x_train_split,
-                y_train_split,
-                train_step_key,
-                ssvae,
-                ssvae_state,
+                resampling_key,
             )
 
             val_loss_value, input_state, val_loss_aux = _val_step(
                 x_val_split,
                 y_val_split,
-                val_step_key,
+                step_key,
                 ssvae,
                 ssvae_state,
             )
@@ -652,13 +624,9 @@ def main(cfg: DictConfig):
             end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
             return (
-                train_loss_value,
-                train_loss_aux,
                 val_loss_value,
                 val_loss_aux,
                 input_state,
-                train_photo_dl_state,
-                train_spec_dl_state,
                 val_photo_dl_state,
                 val_spec_dl_state,
                 end_of_val_split,
@@ -707,6 +675,8 @@ def main(cfg: DictConfig):
                 if end_of_train_split:
                     break
 
+                epoch_train_loss.append(batch_train_loss)
+                epoch_train_aux.append(batch_train_aux)
                 train_batches += 1
 
             t1 = time.time()
@@ -722,13 +692,9 @@ def main(cfg: DictConfig):
                 val_step_key, epoch_val_key = jr.split(epoch_val_key)
 
                 (
-                    batch_train_loss,
-                    batch_train_aux,
                     batch_val_loss,
                     batch_val_aux,
                     input_state,
-                    train_photometric_dataloader_state,
-                    train_spectroscopic_dataloader_state,
                     val_photometric_dataloader_state,
                     val_spectroscopic_dataloader_state,
                     end_of_val_split,
@@ -745,8 +711,6 @@ def main(cfg: DictConfig):
                 if end_of_val_split:
                     break
 
-                epoch_train_loss.append(batch_train_loss)
-                epoch_train_aux.append(batch_train_aux)
                 epoch_val_loss.append(batch_val_loss)
                 epoch_val_aux.append(batch_val_aux)
 
@@ -1031,15 +995,12 @@ def main(cfg: DictConfig):
         def eval_step(
             ssvae,
             ssvae_state,
-            train_photo_dl_state,
-            train_spec_dl_state,
             val_photo_dl_state,
             val_spec_dl_state,
             rng_key,
         ):
 
-            train_resampling_key, val_resampling_key, rng_key = jr.split(rng_key, 3)
-            train_step_key, val_step_key = jr.split(rng_key)
+            resampling_key, step_key, rng_key = jr.split(rng_key, 3)
 
             (
                 x_val_split,
@@ -1051,38 +1012,13 @@ def main(cfg: DictConfig):
             ) = val_iterator(
                 val_photo_dl_state,
                 val_spec_dl_state,
-                val_resampling_key,
-            )
-
-            (
-                x_train_split,
-                y_train_split,
-                train_photo_dl_state,
-                train_spec_dl_state,
-                _,
-                _,
-            ) = train_iterator(
-                train_photo_dl_state,
-                train_spec_dl_state,
-                train_resampling_key,
-            )
-
-            (
-                train_loss_value,
-                ssvae_state,
-                train_loss_aux,
-            ) = _val_step(
-                x_train_split,
-                y_train_split,
-                train_step_key,
-                ssvae,
-                ssvae_state,
+                resampling_key,
             )
 
             val_loss_value, input_state, val_loss_aux = _val_step(
                 x_val_split,
                 y_val_split,
-                val_step_key,
+                step_key,
                 ssvae,
                 ssvae_state,
             )
@@ -1090,13 +1026,9 @@ def main(cfg: DictConfig):
             end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
             return (
-                train_loss_value,
-                train_loss_aux,
                 val_loss_value,
                 val_loss_aux,
                 input_state,
-                train_photo_dl_state,
-                train_spec_dl_state,
                 val_photo_dl_state,
                 val_spec_dl_state,
                 end_of_val_split,
@@ -1108,7 +1040,6 @@ def main(cfg: DictConfig):
 
             end_of_train_split = False
             end_of_val_split = False
-            end_of_prediction_split = False
 
             train_batches = 0
             val_batches = 0
@@ -1116,8 +1047,6 @@ def main(cfg: DictConfig):
             epoch_train_aux = []
             epoch_val_loss = []
             epoch_val_aux = []
-            epoch_val_target_means = []
-            epoch_val_target_stds = []
 
             t0_epoch = time.time()
 
@@ -1148,6 +1077,9 @@ def main(cfg: DictConfig):
                 if end_of_train_split:
                     break
 
+                epoch_train_loss.append(batch_train_loss)
+                epoch_train_aux.append(batch_train_aux)
+
                 train_batches += 1
 
             t1 = time.time()
@@ -1163,21 +1095,15 @@ def main(cfg: DictConfig):
                 val_step_key, epoch_val_key = jr.split(epoch_val_key)
 
                 (
-                    batch_train_loss,
-                    batch_train_aux,
                     batch_val_loss,
                     batch_val_aux,
                     input_state,
-                    train_photometric_dataloader_state,
-                    train_spectroscopic_dataloader_state,
                     val_photometric_dataloader_state,
                     val_spectroscopic_dataloader_state,
                     end_of_val_split,
                 ) = eval_step(
                     inference_ssvae,
                     input_state,
-                    train_photometric_dataloader_state,
-                    train_spectroscopic_dataloader_state,
                     val_photometric_dataloader_state,
                     val_spectroscopic_dataloader_state,
                     val_step_key,
@@ -1186,8 +1112,6 @@ def main(cfg: DictConfig):
                 if end_of_val_split:
                     break
 
-                epoch_train_loss.append(batch_train_loss)
-                epoch_train_aux.append(batch_train_aux)
                 epoch_val_loss.append(batch_val_loss)
                 epoch_val_aux.append(batch_val_aux)
 
@@ -1510,15 +1434,12 @@ def main(cfg: DictConfig):
         def eval_step(
             ssvae,
             ssvae_state,
-            train_photo_dl_state,
-            train_spec_dl_state,
             val_photo_dl_state,
             val_spec_dl_state,
             rng_key,
         ):
 
-            train_resampling_key, val_resampling_key, rng_key = jr.split(rng_key, 3)
-            train_step_key, val_step_key = jr.split(rng_key)
+            resampling_key, step_key, rng_key = jr.split(rng_key, 3)
 
             (
                 x_val_split,
@@ -1530,38 +1451,13 @@ def main(cfg: DictConfig):
             ) = val_iterator(
                 val_photo_dl_state,
                 val_spec_dl_state,
-                val_resampling_key,
-            )
-
-            (
-                x_train_split,
-                y_train_split,
-                train_photo_dl_state,
-                train_spec_dl_state,
-                _,
-                _,
-            ) = train_iterator(
-                train_photo_dl_state,
-                train_spec_dl_state,
-                train_resampling_key,
-            )
-
-            (
-                train_loss_value,
-                ssvae_state,
-                train_loss_aux,
-            ) = _val_step(
-                x_train_split,
-                y_train_split,
-                train_step_key,
-                ssvae,
-                ssvae_state,
+                resampling_key,
             )
 
             val_loss_value, input_state, val_loss_aux = _val_step(
                 x_val_split,
                 y_val_split,
-                val_step_key,
+                step_key,
                 ssvae,
                 ssvae_state,
             )
@@ -1569,13 +1465,9 @@ def main(cfg: DictConfig):
             end_of_val_split = jnp.all(spectroscopic_reset_condition)
 
             return (
-                train_loss_value,
-                train_loss_aux,
                 val_loss_value,
                 val_loss_aux,
                 input_state,
-                train_photo_dl_state,
-                train_spec_dl_state,
                 val_photo_dl_state,
                 val_spec_dl_state,
                 end_of_val_split,
@@ -1587,7 +1479,6 @@ def main(cfg: DictConfig):
 
             end_of_train_split = False
             end_of_val_split = False
-            end_of_prediction_split = False
 
             train_batches = 0
             val_batches = 0
@@ -1595,8 +1486,6 @@ def main(cfg: DictConfig):
             epoch_train_aux = []
             epoch_val_loss = []
             epoch_val_aux = []
-            epoch_val_target_means = []
-            epoch_val_target_stds = []
 
             t0_epoch = time.time()
 
@@ -1627,6 +1516,8 @@ def main(cfg: DictConfig):
                 if end_of_train_split:
                     break
 
+                epoch_train_loss.append(batch_train_loss)
+                epoch_train_aux.append(batch_train_aux)
                 train_batches += 1
 
             t1 = time.time()
@@ -1642,21 +1533,15 @@ def main(cfg: DictConfig):
                 val_step_key, epoch_val_key = jr.split(epoch_val_key)
 
                 (
-                    batch_train_loss,
-                    batch_train_aux,
                     batch_val_loss,
                     batch_val_aux,
                     input_state,
-                    train_photometric_dataloader_state,
-                    train_spectroscopic_dataloader_state,
                     val_photometric_dataloader_state,
                     val_spectroscopic_dataloader_state,
                     end_of_val_split,
                 ) = eval_step(
                     inference_ssvae,
                     input_state,
-                    train_photometric_dataloader_state,
-                    train_spectroscopic_dataloader_state,
                     val_photometric_dataloader_state,
                     val_spectroscopic_dataloader_state,
                     val_step_key,
@@ -1665,8 +1550,6 @@ def main(cfg: DictConfig):
                 if end_of_val_split:
                     break
 
-                epoch_train_loss.append(batch_train_loss)
-                epoch_train_aux.append(batch_train_aux)
                 epoch_val_loss.append(batch_val_loss)
                 epoch_val_aux.append(batch_val_aux)
 
