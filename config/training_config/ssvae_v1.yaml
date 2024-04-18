@@ -1,0 +1,4 @@
+epochs: 200
+pretrain_vae: False
+pretrain_predictor: False
+train_full_model: True

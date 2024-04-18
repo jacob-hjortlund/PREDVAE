@@ -1,0 +1,4 @@
+layers: [2048, 1024, 512]
+use_spec_norm: False
+use_final_spec_norm: False
+use_v2: True
