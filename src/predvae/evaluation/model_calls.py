@@ -87,8 +87,8 @@ def mixture_inverse_cdf(q, means, stds, weights):
         + jnp.sum(weights * means**2, axis=-1)
         - jnp.sum(weights * means, axis=-1) ** 2
     )
-    lower_bound = mean - 10 * std
-    upper_bound = mean + 10 * std
+    lower_bound = mean - 20 * std
+    upper_bound = mean + 20 * std
     options = {
         "lower": lower_bound,
         "upper": upper_bound,

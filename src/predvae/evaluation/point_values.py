@@ -12,15 +12,7 @@ def difference_matrix(a):
 
 
 @partial(jax.vmap, in_axes=(0, 0, 0, 0, None, None, None))
-def calculate_point_values(
-    weights,
-    means,
-    stds,
-    ppfs,
-    q_min=0.01,
-    q_max=0.99,
-    q_n=100,
-):
+def calculate_point_values(weights, means, stds, ppfs, q_min=0.01, q_max=0.99, q_n=100):
 
     mean = jnp.sum(weights * means, axis=-1)
     std = jnp.sqrt(
@@ -31,11 +23,15 @@ def calculate_point_values(
 
     q = jnp.linspace(q_min, q_max, q_n)
     idx_median = jnp.argmin(jnp.abs(q - 0.5))
-    idx_lower = jnp.argmin(jnp.abs(q - 0.16))
-    idx_upper = jnp.argmin(jnp.abs(q - 0.84))
+    idx_1sig_lower = jnp.argmin(jnp.abs(q - 0.16))
+    idx_1sig_upper = jnp.argmin(jnp.abs(q - 0.84))
+    idx_3sig_lower = jnp.argmin(jnp.abs(q - 0.00135))
+    idx_3sig_upper = jnp.argmin(jnp.abs(q - 0.99865))
 
     medians = ppfs[idx_median]
-    lower = ppfs[idx_lower]
-    upper = ppfs[idx_upper]
+    lower_1sig = ppfs[idx_1sig_lower]
+    upper_1sig = ppfs[idx_1sig_upper]
+    lower_3sig = ppfs[idx_3sig_lower]
+    upper_3sig = ppfs[idx_3sig_upper]
 
-    return (mean, std), (medians, lower, upper)
+    return (mean, std), (medians, lower_1sig, upper_1sig), (lower_3sig, upper_3sig)
