@@ -89,5 +89,5 @@ training_config:
 evaluation_config:
   q_min: 0.01
   q_max: 0.99
-  n_q: 1000
+  n_q: 999
   n_sample: 20
