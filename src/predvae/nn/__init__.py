@@ -1,14 +1,6 @@
 from .mlp import MLP
-from .priors import Gaussian, Categorical
-from .vae import (
-    GaussianCoder,
-    GaussianMixtureCoder,
-    CategoricalCoder,
-    VAE,
-    SSVAE,
-    SSVAEv2,
-    InputLayer,
-)
+from .priors import *
+from .vae import *
 from .utils import (
     freeze_prior,
     freeze_submodule,

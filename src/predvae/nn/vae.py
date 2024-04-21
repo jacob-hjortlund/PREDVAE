@@ -10,6 +10,8 @@ from jax.typing import ArrayLike
 from src.predvae.nn.mlp import MLP
 from collections.abc import Callable
 from jax.scipy import stats as jstats
+from optax.losses import sigmoid_binary_cross_entropy
+from .priors import Gaussian, Categorical, GaussianMixture
 
 
 class InputLayer(Module):
@@ -198,6 +200,9 @@ class CategoricalCoder(Module):
         depth: int,
         activation: Callable,
         key: ArrayLike,
+        use_spectral_norm: bool = False,
+        use_final_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -208,6 +213,9 @@ class CategoricalCoder(Module):
             depth=depth,
             key=key,
             activation=activation,
+            use_spectral_norm=use_spectral_norm,
+            use_final_spectral_norm=use_final_spectral_norm,
+            num_power_iterations=num_power_iterations,
             **kwargs,
         )
         self.input_size = input_size
@@ -230,6 +238,64 @@ class CategoricalCoder(Module):
         logits, state = self.mlp(x, state)
         z = self.sample(logits, rng_key)
         z = z.astype(jnp.int32)
+
+        return z, (logits,), state
+
+
+class BernoulliCoder(Module):
+
+    mlp: Module
+    input_size: int = eqx.field(static=True)
+    output_size: int = eqx.field(static=True)
+    width: ArrayLike = eqx.field(static=True, converter=jnp.asarray)
+    depth: int = eqx.field(static=True)
+    activation: Callable
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        width: ArrayLike,
+        depth: int,
+        activation: Callable,
+        key: ArrayLike,
+        use_spectral_norm: bool = False,
+        use_final_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.mlp = MLP(
+            in_size=input_size,
+            out_size=output_size,
+            width_size=width,
+            depth=depth,
+            key=key,
+            activation=activation,
+            use_spectral_norm=use_spectral_norm,
+            use_final_spectral_norm=use_final_spectral_norm,
+            num_power_iterations=num_power_iterations,
+            **kwargs,
+        )
+        self.input_size = input_size
+        self.output_size = output_size
+        self.width = width
+        self.depth = depth
+        self.activation = activation
+
+    def sample(self, logits, rng_key):
+        return jax.random.bernoulli(rng_key, jax.nn.sigmoid(logits))
+
+    def log_prob(self, x, logits):
+        bce = sigmoid_binary_cross_entropy(logits, x)
+        lp = jnp.sum(bce, axis=-1)
+        # lpi = logits * (x - 1) - jax.nn.softplus(-logits)
+        # lp = jnp.sum(lpi, axis=-1)
+        return lp
+
+    def __call__(self, x: ArrayLike, state: eqx.nn.State, rng_key: ArrayLike):
+        logits, state = self.mlp(x, state)
+        z = self.sample(logits, rng_key)
 
         return z, (logits,), state
 
@@ -433,8 +499,8 @@ class GMVAE(Module):
     decoder: GaussianCoder
     encoder_input_layer: InputLayer
     decoder_input_layer: InputLayer
-    latent_prior: GaussianCoder
-    classifier_prior: Module
+    latent_prior: GaussianMixture
+    classifier_prior: Categorical
 
     def __init__(
         self,
@@ -456,19 +522,42 @@ class GMVAE(Module):
         self.classifier_prior = classifier_prior
 
     def classify(self, x, input_state, rng_key):
-        pass
+
+        y, y_pars, output_state = self.classifier(x, input_state, rng_key)
+
+        return y, y_pars, output_state
 
     def encode(self, x, y, input_state, rng_key):
-        pass
+
+        _x = self.encoder_input_layer(x, y)
+        z, z_pars, output_state = self.encoder(_x, input_state, rng_key)
+
+        return z, z_pars, output_state
 
     def decode(self, z, y, input_state, rng_key):
-        pass
+
+        _z = self.decoder_input_layer(z, y)
+        x_hat, x_pars, output_state = self.decoder(_z, input_state, rng_key)
+
+        return x_hat, x_pars, output_state
 
     def unsupervised_call(self, x, y, input_state, rng_key):
         return self(x, y, input_state, rng_key)
 
     def supervised_call(self, x, y, input_state, rng_key):
-        pass
+
+        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        _, y_pars, classifier_state = self.classify(x, input_state, classifier_key)
+        z, z_pars, encoder_state = self.encode(x, y, classifier_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
 
     def __call__(self, x, y, input_state, rng_key):
-        pass
+
+        classifier_key, encoder_key, decoder_key = jr.split(rng_key, 3)
+        y, y_pars, classifier_state = self.classify(x, input_state, classifier_key)
+        z, z_pars, encoder_state = self.encode(x, y, classifier_state, encoder_key)
+        x_hat, x_pars, decoder_state = self.decode(z, y, encoder_state, decoder_key)
+
+        return (y, z, x_hat, y_pars, z_pars, x_pars), decoder_state
