@@ -144,15 +144,18 @@ def main(cfg: DictConfig):
     # ----------------------------- SPLIT INTO TRAIN AND VAL -----------------------------
 
     spec_split_key, photo_split_key, RNG_KEY = jr.split(RNG_KEY, 3)
-    spec_val_mask = jax.random.bernoulli(
+    spec_val_mask = jax.random.choice(
         spec_split_key,
-        p=cfg["data_config"]["validation_fraction"],
-        shape=(spec_z.shape[0],),
+        jnp.arange(spec_z.shape[0]),
+        shape=(int(spec_z.shape[0] * cfg["data_config"]["validation_fraction"]),),
+        replace=False
     )
-    photo_val_mask = jax.random.bernoulli(
+
+    photo_val_mask = jax.random.choice(
         photo_split_key,
-        p=cfg["data_config"]["validation_fraction"],
-        shape=(photo_objid.shape[0],),
+        jnp.arange(photo_objid.shape[0]),
+        shape=(int(photo_objid.shape[0] * cfg["data_config"]["validation_fraction"]),),
+        replace=False
     )
 
     spec_psf_photometry_train = spec_psf_photometry[~spec_val_mask]
