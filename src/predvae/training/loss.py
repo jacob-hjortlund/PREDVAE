@@ -292,10 +292,10 @@ def gaussian_kl_divergence(mu_q, logsig_q, mu_p, logsig_p):
     return kl_divergence
 
 
-def _supervised_clustering_loss(model, input_stat, x, y, rng_key):
+def _supervised_clustering_loss(model, input_state, x, y, rng_key):
 
     (y, z, x_hat, y_pars, z_pars, x_pars), output_state = model.supervised_call(
-        x, y, input_stat, rng_key
+        x, y, input_state, rng_key
     )
 
     classifier_log_prior = model.classifier_prior(y)
@@ -386,6 +386,18 @@ def _unsupervised_clustering_loss(model, input_state, x, rng_key):
     return loss_components, output_state
 
 
+def _clustering_predictions(model, input_state, x, y, rng_key):
+
+    (y, z, x_hat, y_pars, z_pars, x_pars), output_state = model.unsupervised_call(
+        x, y, input_state, rng_key
+    )
+
+    classifier_probs = jax.nn.softmax(y_pars[0])
+    classifier_predictions = jnp.argmax(classifier_probs, axis=-1)
+
+    return classifier_predictions, output_state
+
+
 def unsupervised_clustering_loss(
     free_params: Module,
     frozen_params: Module,
@@ -396,12 +408,29 @@ def unsupervised_clustering_loss(
 ):
 
     model = eqx.combine(free_params, frozen_params)
+    loss_key, acc_key = jr.split(rng_key)
+    loss_keys = jr.split(loss_key, x.shape[0])
+    acc_keys = jr.split(acc_key, x.shape[0])
+
     vmapped_sample_loss = eqx.filter_vmap(
         _unsupervised_clustering_loss,
-        in_axes=(None, None, eqx.if_array(0), None),
+        in_axes=(None, None, eqx.if_array(0), 0),
         out_axes=(eqx.if_array(0), None),
     )
-    loss_components, output_state = vmapped_sample_loss(model, input_state, x, rng_key)
+    loss_components, output_state = vmapped_sample_loss(
+        model, input_state, x, loss_keys
+    )
+
+    vmapped_clustering_predictions = eqx.filter_vmap(
+        _clustering_predictions,
+        in_axes=(None, None, 0, 0, 0),
+        out_axes=(0, None),
+    )
+    classifier_predictions, output_state = vmapped_clustering_predictions(
+        model, input_state, x, y, acc_keys
+    )
+    classifier_targets = jnp.argmax(y, axis=-1)
+    accuracy = jnp.mean(classifier_predictions == classifier_targets)
 
     (
         mean_classifier_log_prob,
@@ -438,6 +467,7 @@ def unsupervised_clustering_loss(
             batch_latent_log_prob,
             batch_latent_kl_divergence,
             batch_reconstruction_log_prob,
+            accuracy,
         ]
     )
 
