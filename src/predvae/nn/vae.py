@@ -287,7 +287,7 @@ class BernoulliCoder(Module):
         return jax.random.bernoulli(rng_key, jax.nn.sigmoid(logits))
 
     def log_prob(self, x, logits):
-        bce = sigmoid_binary_cross_entropy(logits, x)
+        bce = -sigmoid_binary_cross_entropy(logits, x)
         lp = jnp.sum(bce, axis=-1)
         # lpi = logits * (x - 1) - jax.nn.softplus(-logits)
         # lp = jnp.sum(lpi, axis=-1)
