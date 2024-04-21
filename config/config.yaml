@@ -77,7 +77,9 @@ training_config:
   warmup: 1
   init_lr: 0.005
   final_lr: 0.00005
-  batch_size: 1024
+  full_batch_size: 1024
+  spectroscopic_batch_size: 1024
+  photometric_batch_size: 1024
   beta: 1.0
   n_mc_samples: 1
   pretrain_vae: False
