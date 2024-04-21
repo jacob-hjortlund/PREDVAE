@@ -280,6 +280,18 @@ def ssvae_loss(
     )
 
 
+def gaussian_kl_divergence(mu_q, logsig_q, mu_p, logsig_p):
+    dim = mu_q.shape[-1]
+
+    first_term = jnp.sum(jnp.exp(2 * (logsig_q - logsig_p)), axis=-1)
+    second_term = jnp.sum((mu_q - mu_p) ** 2 / jnp.exp(2 * logsig_p), axis=-1)
+    last_term = 2 * jnp.sum(logsig_p - logsig_q, axis=-1)
+
+    kl_divergence = 0.5 * (first_term + second_term + last_term - dim)
+
+    return kl_divergence
+
+
 def _supervised_clustering_loss(model, input_stat, x, y, rng_key):
 
     (y, z, x_hat, y_pars, z_pars, x_pars), output_state = model.supervised_call(
@@ -292,6 +304,13 @@ def _supervised_clustering_loss(model, input_stat, x, y, rng_key):
     latent_log_prior = model.latent_prior(y, z)
     latent_log_prob = model.encoder.log_prob(z, *z_pars)
 
+    latent_prior_mean = model.latent_prior.mus(y)
+    latent_prior_log_sigma = model.latent_prior.log_sigmas(y)
+    latent_mean, latent_log_sigma = z_pars
+    latent_kl_divergence = gaussian_kl_divergence(
+        latent_mean, latent_log_sigma, latent_prior_mean, latent_prior_log_sigma
+    )
+
     reconstruction_log_prob = model.decoder.log_prob(x, *x_pars)
 
     loss_components = jnp.array(
@@ -300,6 +319,7 @@ def _supervised_clustering_loss(model, input_stat, x, y, rng_key):
             classifier_log_prior,
             latent_log_prior,
             latent_log_prob,
+            latent_kl_divergence,
             reconstruction_log_prob,
         ]
     )
@@ -328,32 +348,38 @@ def _unsupervised_clustering_loss(model, input_state, x, rng_key):
         classifier_log_prior,
         latent_log_prior,
         latent_log_prob,
+        latent_kl_divergence,
         reconstruction_log_prob,
     ) = loss_components.T
 
-    marginalized_classifier_log_prior = jnp.sum(
-        jnp.exp(classifier_log_prob) * classifier_log_prior
+    classifier_probs = jnp.exp(classifier_log_prob)
+    classifier_kl_divergence = jnp.sum(
+        classifier_probs * (classifier_log_prob - classifier_log_prior), axis=-1
     )
-    marginalized_classifier_log_prob = jnp.sum(
-        jnp.exp(classifier_log_prob) * classifier_log_prob
+
+    mean_classifier_log_prob = jnp.sum(classifier_probs * classifier_log_prob, axis=-1)
+    mean_classifier_log_prior = jnp.sum(
+        classifier_probs * classifier_log_prior, axis=-1
     )
-    marginalized_latent_log_prior = jnp.sum(
-        jnp.exp(classifier_log_prob) * latent_log_prior
+
+    mean_latent_log_prior = jnp.sum(classifier_probs * latent_log_prior, axis=-1)
+    mean_latent_log_prob = jnp.sum(classifier_probs * latent_log_prob, axis=-1)
+    mean_latent_kl_divergence = jnp.sum(
+        classifier_probs * latent_kl_divergence, axis=-1
     )
-    marginalized_latent_log_prob = jnp.sum(
-        jnp.exp(classifier_log_prob) * latent_log_prob
-    )
-    marginalized_reconstruction_log_prob = jnp.sum(
-        jnp.exp(classifier_log_prob) * reconstruction_log_prob
+    mean_reconstruction_log_prob = jnp.sum(
+        classifier_probs * reconstruction_log_prob, axis=-1
     )
 
     loss_components = jnp.array(
         [
-            marginalized_classifier_log_prob,
-            marginalized_classifier_log_prior,
-            marginalized_latent_log_prior,
-            marginalized_latent_log_prob,
-            marginalized_reconstruction_log_prob,
+            mean_classifier_log_prob,
+            mean_classifier_log_prior,
+            classifier_kl_divergence,
+            mean_latent_log_prior,
+            mean_latent_log_prob,
+            mean_latent_kl_divergence,
+            mean_reconstruction_log_prob,
         ]
     )
 
@@ -378,35 +404,41 @@ def unsupervised_clustering_loss(
     loss_components, output_state = vmapped_sample_loss(model, input_state, x, rng_key)
 
     (
-        marginalized_classifier_log_prob,
-        marginalized_classifier_log_prior,
-        marginalized_latent_log_prior,
-        marginalized_latent_log_prob,
-        marginalized_reconstruction_log_prob,
+        mean_classifier_log_prob,
+        mean_classifier_log_prior,
+        classifier_kl_divergence,
+        mean_latent_log_prior,
+        mean_latent_log_prob,
+        mean_latent_kl_divergence,
+        mean_reconstruction_log_prob,
     ) = loss_components.T
 
     batch_size = x.shape[0]
 
-    classifier_term = (
-        marginalized_classifier_log_prob - marginalized_classifier_log_prior
-    ) / batch_size
-    latent_term = (
-        marginalized_latent_log_prob - marginalized_latent_log_prior
-    ) / batch_size
-    reconstruction_term = -marginalized_reconstruction_log_prob / batch_size
-    loss = jnp.sum(classifier_term + latent_term + reconstruction_term)
+    batch_classifier_log_prob = jnp.sum(mean_classifier_log_prob) / batch_size
+    batch_classifier_log_prior = jnp.sum(mean_classifier_log_prior) / batch_size
+    batch_classifier_kl_divergence = jnp.sum(classifier_kl_divergence) / batch_size
+    batch_latent_log_prior = jnp.sum(mean_latent_log_prior) / batch_size
+    batch_latent_log_prob = jnp.sum(mean_latent_log_prob) / batch_size
+    batch_latent_kl_divergence = jnp.sum(mean_latent_kl_divergence) / batch_size
+    batch_reconstruction_log_prob = jnp.sum(mean_reconstruction_log_prob) / batch_size
+
+    batch_loss = (
+        batch_classifier_kl_divergence
+        + batch_latent_kl_divergence
+        - batch_reconstruction_log_prob
+    )
 
     loss_aux = jnp.array(
         [
-            jnp.sum(classifier_term),
-            jnp.sum(latent_term),
-            jnp.sum(reconstruction_term),
-            jnp.sum(marginalized_classifier_log_prob) / batch_size,
-            jnp.sum(marginalized_classifier_log_prior) / batch_size,
-            jnp.sum(marginalized_latent_log_prior) / batch_size,
-            jnp.sum(marginalized_latent_log_prob) / batch_size,
-            jnp.sum(marginalized_reconstruction_log_prob) / batch_size,
+            batch_classifier_log_prob,
+            batch_classifier_log_prior,
+            batch_classifier_kl_divergence,
+            batch_latent_log_prior,
+            batch_latent_log_prob,
+            batch_latent_kl_divergence,
+            batch_reconstruction_log_prob,
         ]
     )
 
-    return loss, (loss_aux, output_state)
+    return batch_loss, (loss_aux, output_state)
