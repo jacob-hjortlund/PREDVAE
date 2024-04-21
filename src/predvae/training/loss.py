@@ -1,4 +1,5 @@
 import jax
+import numpy as np
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
@@ -8,6 +9,7 @@ from jax.lax import cond
 from equinox import Module
 from jax.typing import ArrayLike
 from collections.abc import Callable
+from scipy.optimize import linear_sum_assignment
 
 
 def _sample_loss(
@@ -398,6 +400,17 @@ def _clustering_predictions(model, input_state, x, y, rng_key):
     return classifier_predictions, output_state
 
 
+def cluster_acc(Y_pred, Y):
+    Y_pred, Y = np.array(Y_pred), np.array(Y)
+    assert Y_pred.size == Y.size
+    D = max(Y_pred.max(), Y.max()) + 1
+    w = np.zeros((D, D), dtype=np.int64)
+    for i in range(Y_pred.size):
+        w[Y_pred[i], Y[i]] += 1
+    row, col = linear_sum_assignment(w.max() - w)
+    return sum([w[row[i], col[i]] for i in range(row.shape[0])]) * 1.0 / Y_pred.size
+
+
 def unsupervised_clustering_loss(
     free_params: Module,
     frozen_params: Module,
@@ -429,8 +442,6 @@ def unsupervised_clustering_loss(
     classifier_predictions, output_state = vmapped_clustering_predictions(
         model, input_state, x, y, acc_keys
     )
-    classifier_targets = jnp.argmax(y, axis=-1)
-    accuracy = jnp.mean(classifier_predictions == classifier_targets)
 
     (
         mean_classifier_log_prob,
@@ -467,8 +478,11 @@ def unsupervised_clustering_loss(
             batch_latent_log_prob,
             batch_latent_kl_divergence,
             batch_reconstruction_log_prob,
-            accuracy,
         ]
     )
 
-    return batch_loss, (loss_aux, output_state)
+    return batch_loss, (
+        loss_aux,
+        classifier_predictions,
+        output_state,
+    )
