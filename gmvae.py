@@ -333,6 +333,13 @@ def train_model(
 
         print(epoch_string)
 
+    train_loss = jnp.array(train_loss)
+    val_loss = jnp.array(val_loss)
+    train_aux = jnp.array(train_aux)
+    val_aux = jnp.array(val_aux)
+    train_acc = jnp.array(train_acc)
+    val_acc = jnp.array(val_acc)
+
     return (
         model,
         input_state,
