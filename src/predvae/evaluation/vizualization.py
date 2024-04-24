@@ -34,7 +34,7 @@ def plot_latent_space(latent_means, labels, save_dir, filename="latent_space"):
     idx_star = labels == _labels[2]
     idxes = [idx_galaxy[:n_latent], idx_qso[:n_latent], idx_star[:n_latent]]
 
-    fig, ax = plt.subplots(2, 2, figsize=(16, 16), sharex=True, sharey=True)
+    fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)
     ax = ax.flatten()
 
     for i, idx in enumerate(idxes):
@@ -51,17 +51,19 @@ def plot_latent_space(latent_means, labels, save_dir, filename="latent_space"):
         ax[i + 1].scatter(
             latent_space[idx, 0], latent_space[idx, 1], color=colors[i], s=5
         )
-        ax[i + 1].set_title(_labels[i], fontsize=16)
+        ax[i + 1].set_title(_labels[i], fontsize=20)
 
-    ax[0].set_title("All Classes", fontsize=16)
-    ax[0].legend(fontsize=16)
+    ax[0].set_title("All Classes", fontsize=20)
+    # ax[0].legend(fontsize=20, facecolor="none", edgecolor="white")
 
-    fig.suptitle("Latent Space Visualization", fontsize=20)
-    fig.supxlabel("UMAP 1", fontsize=16)
-    fig.supylabel("UMAP 2", fontsize=16)
+    # fig.suptitle("Latent Space Visualization", fontsize=24)
+    fig.supxlabel("UMAP 1", fontsize=20)
+    fig.supylabel("UMAP 2", fontsize=20)
     fig.tight_layout()
 
-    fig.savefig(save_dir / f"{filename}.png", dpi=300)
+    fig.savefig(
+        save_dir / f"{filename}.png", dpi=300, bbox_inches="tight", transparent=True
+    )
 
 
 def qq_plot(ppf_fractions, save_dir, filename="qq_plot", min=0.01, max=0.99):
@@ -69,12 +71,14 @@ def qq_plot(ppf_fractions, save_dir, filename="qq_plot", min=0.01, max=0.99):
     q = jnp.linspace(min, max, len(ppf_fractions))
 
     fig, ax = plt.subplots()
-    ax.plot(q, q, linestyle="--", color="black")
+    ax.plot(q, q, linestyle="--", color="white")
     ax.plot(q, ppf_fractions, color=colors[0])
     ax.set_xlabel("Theoretical Quantiles")
     ax.set_ylabel("Empirical Quantiles")
     ax.set_title("QQ Plot")
-    fig.savefig(save_dir / f"{filename}.png", dpi=300)
+    fig.savefig(
+        save_dir / f"{filename}.png", dpi=300, bbox_inches="tight", transparent=True
+    )
 
 
 def plot_sample_redshift_dists(
@@ -211,7 +215,7 @@ def plot_photo_vs_spec(
         )
 
     z_max = np.max(z_specs) + 0.1
-    ax.plot([0, z_max], [0, z_max], linestyle="--", color="black")
+    ax.plot([0, z_max], [0, z_max], linestyle="--", color="white")
     ax.set_xlim(0, z_max)
     ax.set_ylim(0, z_max)
     ax.set_xlabel("Spec Z", fontsize=16)

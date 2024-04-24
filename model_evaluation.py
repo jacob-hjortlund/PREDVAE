@@ -27,6 +27,15 @@ from omegaconf import DictConfig, OmegaConf
 
 colors = sns.color_palette("colorblind")
 
+import matplotlib as mpl
+
+COLOR = "white"
+mpl.rcParams["text.color"] = COLOR
+mpl.rcParams["axes.labelcolor"] = COLOR
+mpl.rcParams["axes.edgecolor"] = COLOR
+mpl.rcParams["xtick.color"] = COLOR
+mpl.rcParams["ytick.color"] = COLOR
+
 
 @hydra.main(config_path="config", config_name="config")
 def main(cfg: DictConfig):
@@ -298,12 +307,13 @@ def main(cfg: DictConfig):
             )
         )
 
-        evaluation.plot_latent_space(
-            latent_means,
-            object_class,
-            SAVE_DIR,
-            filename="pretrained_vae_latent_space",
-        )
+        with sns.plotting_context("talk"):
+            evaluation.plot_latent_space(
+                latent_means,
+                object_class,
+                SAVE_DIR,
+                filename="pretrained_vae_latent_space",
+            )
 
     if cfg["training_config"]["pretrain_predictor"]:
 
@@ -347,14 +357,16 @@ def main(cfg: DictConfig):
             ppf_fractions, SAVE_DIR, filename="pretrained_predictor_qq_plot"
         )
 
-        (means, stds), (medians, lower, upper) = evaluation.calculate_point_values(
-            y_weights,
-            y_means,
-            y_stds,
-            ppfs.T,
-            cfg["evaluation_config"]["q_min"],
-            cfg["evaluation_config"]["q_max"],
-            cfg["evaluation_config"]["n_q"],
+        (means, stds), (medians, lower, upper), (lower_3sig, upper_3sig) = (
+            evaluation.calculate_point_values(
+                y_weights,
+                y_means,
+                y_stds,
+                ppfs.T,
+                cfg["evaluation_config"]["q_min"],
+                cfg["evaluation_config"]["q_max"],
+                cfg["evaluation_config"]["n_q"],
+            )
         )
 
         descaled_medians = (
@@ -498,14 +510,16 @@ def main(cfg: DictConfig):
         )
         evaluation.qq_plot(ppf_fractions, SAVE_DIR, filename="full_model_qq_plot")
 
-        (means, stds), (medians, lower, upper) = evaluation.calculate_point_values(
-            y_weights,
-            y_means,
-            y_stds,
-            ppfs.T,
-            cfg["evaluation_config"]["q_min"],
-            cfg["evaluation_config"]["q_max"],
-            cfg["evaluation_config"]["n_q"],
+        (means, stds), (medians, lower, upper), (lower_3sig, upper_3sig) = (
+            evaluation.calculate_point_values(
+                y_weights,
+                y_means,
+                y_stds,
+                ppfs.T,
+                cfg["evaluation_config"]["q_min"],
+                cfg["evaluation_config"]["q_max"],
+                cfg["evaluation_config"]["n_q"],
+            )
         )
 
         descaled_medians = (
