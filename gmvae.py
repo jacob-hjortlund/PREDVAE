@@ -199,7 +199,6 @@ def train_step(
     input_state: eqx.nn.State,
     optimizer_state: optax.OptState,
 ):
-
     free_params, frozen_params = eqx.partition(model, filter_spec)
     (loss_value, (loss_aux, y_pred, output_state)), grads = eqx.filter_value_and_grad(
         training.unsupervised_clustering_loss, has_aux=True
@@ -219,7 +218,6 @@ def val_step(
     model: eqx.Module,
     input_state: eqx.nn.State,
 ):
-
     free_params, frozen_params = eqx.partition(model, filter_spec)
     loss_value, (loss_aux, y_pred, output_state) = (
         training.unsupervised_clustering_loss(
@@ -240,7 +238,6 @@ def train_model(
     rng_key: ArrayLike,
     batch_per_epoch: int = 0,
 ):
-
     train_loss = []
     val_loss = []
     train_aux = []
@@ -249,7 +246,6 @@ def train_model(
     val_acc = []
 
     for epoch in range(epochs):
-
         epoch_train_loss = []
         epoch_train_aux = []
         epoch_train_acc = []
@@ -259,16 +255,17 @@ def train_model(
 
         t0_train = time.time()
         for i, (x, y) in enumerate(trainloader):
-
             x = jnp.array(x.numpy())
             y = jnp.array(y.numpy())
             y_onehot = jax.nn.one_hot(y, MIXTURE_COMPONENTS)
+
+            rng_key, subkey = jr.split(rng_key)
 
             model, input_state, optimizer_state, loss_value, loss_aux, y_pred = (
                 train_step(
                     x,
                     y_onehot,
-                    jr.split(rng_key, 1)[0],
+                    subkey,
                     model,
                     input_state,
                     optimizer_state,
@@ -289,7 +286,6 @@ def train_model(
         t0_val = time.time()
         inference_model = eqx.nn.inference_mode(model)
         for i, (x, y) in enumerate(valloader):
-
             x = jnp.array(x.numpy())
             y = jnp.array(y.numpy())
             y_onehot = jax.nn.one_hot(y, MIXTURE_COMPONENTS)
