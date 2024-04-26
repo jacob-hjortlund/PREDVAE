@@ -104,6 +104,7 @@ def _loss(
         _sample_loss,
         in_axes=(None, None, None, None, eqx.if_array(0), None, None),
         out_axes=(eqx.if_array(0), None),
+        axis_name="MC_samples",
     )
 
     rng_keys = jr.split(rng_key, n_samples)
@@ -160,6 +161,7 @@ def ssvae_loss(
         _loss,
         in_axes=(None, None, eqx.if_array(0), eqx.if_array(0), None, None, None, None),
         out_axes=(eqx.if_array(0), None),
+        axis_name="batch",
     )
     loss_components, output_state = vmapped_sample_loss(
         model,
@@ -335,6 +337,7 @@ def _unsupervised_clustering_loss(model, input_state, x, rng_key):
         _supervised_clustering_loss,
         in_axes=(None, None, None, 0, 0),
         out_axes=(0, None),
+        axis_name="n_classes",
     )
 
     n_classes = model.classifier.output_size
@@ -429,6 +432,7 @@ def unsupervised_clustering_loss(
         _unsupervised_clustering_loss,
         in_axes=(None, None, eqx.if_array(0), 0),
         out_axes=(eqx.if_array(0), None),
+        axis_name="batch",
     )
     loss_components, output_state = vmapped_sample_loss(
         model, input_state, x, loss_keys
@@ -438,6 +442,7 @@ def unsupervised_clustering_loss(
         _clustering_predictions,
         in_axes=(None, None, 0, 0, 0),
         out_axes=(0, None),
+        axis_name="batch",
     )
     classifier_predictions, output_state = vmapped_clustering_predictions(
         model, input_state, x, y, acc_keys

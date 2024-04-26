@@ -68,6 +68,68 @@ class GaussianCoder(Module):
         super().__init__()
         self.mlp = MLP(
             in_size=input_size,
+            out_size=2 * output_size,
+            width_size=width,
+            depth=depth,
+            use_spectral_norm=use_spectral_norm,
+            use_final_spectral_norm=use_final_spectral_norm,
+            num_power_iterations=num_power_iterations,
+            key=key,
+            activation=activation,
+            **kwargs,
+        )
+        self.input_size = input_size
+        self.output_size = output_size
+        self.width = width
+        self.depth = depth
+        self.activation = activation
+
+    def sample(self, mu, log_sigma, rng_key):
+        z = mu + jnp.exp(log_sigma) * jr.normal(rng_key, mu.shape)
+
+        return z
+
+    def log_prob(self, x, mu, log_sigma):
+        return jnp.sum(jstats.norm.logpdf(x, loc=mu, scale=jnp.exp(log_sigma)))
+
+    def __call__(
+        self,
+        x: ArrayLike,
+        input_state: eqx.nn.State,
+        rng_key: ArrayLike,
+    ):
+        output, output_state = self.mlp(x, input_state)
+        mu = output[..., : self.output_size]
+        log_sigma = output[..., self.output_size :]
+        z = self.sample(mu, log_sigma, rng_key)
+
+        return z, (mu, log_sigma), output_state
+
+
+class SharedSigmaGaussianCoder(Module):
+    mlp: Module
+    input_size: int = eqx.field(static=True)
+    output_size: int = eqx.field(static=True)
+    width: ArrayLike = eqx.field(static=True, converter=jnp.asarray)
+    depth: int = eqx.field(static=True)
+    activation: Callable
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        width: ArrayLike,
+        depth: int,
+        activation: Callable,
+        key: ArrayLike,
+        use_spectral_norm: bool = False,
+        use_final_spectral_norm: bool = False,
+        num_power_iterations: int = 1,
+        **kwargs,
+    ):
+        super().__init__()
+        self.mlp = MLP(
+            in_size=input_size,
             out_size=output_size + 1,
             width_size=width,
             depth=depth,

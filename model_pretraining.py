@@ -45,59 +45,59 @@ def main(cfg: DictConfig):
         "\n--------------------------------- LOADING DATA ---------------------------------\n"
     )
 
-    spec_df = pd.read_csv(
-        DATA_DIR / cfg["data_config"]["spec_file"],
-        # nrows=cfg["training_config"]["batch_size"] * 11,
-    )
-    photo_df = pd.read_csv(
-        DATA_DIR / cfg["data_config"]["photo_file"],
-        skiprows=[1],
-        # nrows=cfg["training_config"]["batch_size"] * 11,
-    )
+    spec_train = pd.read_csv(DATA_DIR / cfg["data_config"]["spec_train_file"])
+    spec_val = pd.read_csv(DATA_DIR / cfg["data_config"]["spec_val_file"])
+    photo_train = pd.read_csv(DATA_DIR / cfg["data_config"]["photo_train_file"])
+    photo_val = pd.read_csv(DATA_DIR / cfg["data_config"]["photo_val_file"])
 
     # ----------------------------- RESET BATCH SIZES AND ALPHA -----------------------------
 
-    n_spec = spec_df.shape[0]
-    n_photo = photo_df.shape[0]
-    spec_ratio = n_spec / (n_spec + n_photo)
+    if (
+        cfg["training_config"]["pretrain_vae"]
+        or cfg["training_config"]["train_full_model"]
+    ):
 
-    PHOTOMETRIC_BATCH_SIZE = np.round(
-        cfg["training_config"]["batch_size"] * (1 - spec_ratio)
-    ).astype(int)
-    SPECTROSCOPIC_BATCH_SIZE = (
-        cfg["training_config"]["batch_size"] - PHOTOMETRIC_BATCH_SIZE
-    )
-    ALPHA = (
-        PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE
-    ) * SPECTROSCOPIC_BATCH_SIZE
-    batch_size_ratio = SPECTROSCOPIC_BATCH_SIZE / (
-        SPECTROSCOPIC_BATCH_SIZE + PHOTOMETRIC_BATCH_SIZE
-    )
-    expected_no_of_spec_batches = n_spec // SPECTROSCOPIC_BATCH_SIZE
-    expected_no_of_photo_batches = n_photo // PHOTOMETRIC_BATCH_SIZE
+        n_spec = spec_train.shape[0]
+        n_photo = photo_train.shape[0]
+        spec_ratio = n_spec / (n_spec + n_photo)
 
-    print(f"\nN Spec: {n_spec}")
-    print(f"N Photo: {n_photo}")
-    print(f"Spec Ratio: {spec_ratio}")
-    print(f"Batch Size: {cfg['training_config']['batch_size']}")
-    print(f"Photometric Batch Size: {PHOTOMETRIC_BATCH_SIZE}")
-    print(f"Spectroscopic Batch Size: {SPECTROSCOPIC_BATCH_SIZE}")
-    print(f"Batch Size Ratio: {batch_size_ratio}")
-    print(f"Expected No of Spec Batches: {expected_no_of_spec_batches}")
-    print(f"Expected No of Photo Batches: {expected_no_of_photo_batches}\n")
+        PHOTOMETRIC_BATCH_SIZE = np.round(
+            cfg["training_config"]["full_batch_size"] * (1 - spec_ratio)
+        ).astype(int)
+        SPECTROSCOPIC_BATCH_SIZE = (
+            cfg["training_config"]["full_batch_size"] - PHOTOMETRIC_BATCH_SIZE
+        )
+        ALPHA = (
+            PHOTOMETRIC_BATCH_SIZE + SPECTROSCOPIC_BATCH_SIZE
+        ) * SPECTROSCOPIC_BATCH_SIZE
+        batch_size_ratio = SPECTROSCOPIC_BATCH_SIZE / (
+            SPECTROSCOPIC_BATCH_SIZE + PHOTOMETRIC_BATCH_SIZE
+        )
+        expected_no_of_spec_batches = n_spec // SPECTROSCOPIC_BATCH_SIZE
+        expected_no_of_photo_batches = n_photo // PHOTOMETRIC_BATCH_SIZE
+
+        print(f"\nN Spec: {n_spec}")
+        print(f"N Photo: {n_photo}")
+        print(f"Spec Ratio: {spec_ratio}")
+        print(f"Batch Size: {cfg['training_config']['batch_size']}")
+        print(f"Photometric Batch Size: {PHOTOMETRIC_BATCH_SIZE}")
+        print(f"Spectroscopic Batch Size: {SPECTROSCOPIC_BATCH_SIZE}")
+        print(f"Batch Size Ratio: {batch_size_ratio}")
+        print(f"Expected No of Spec Batches: {expected_no_of_spec_batches}")
+        print(f"Expected No of Photo Batches: {expected_no_of_photo_batches}\n")
 
     # ----------------------------- CREATE INPUT ARRAYS -----------------------------
 
     (
-        spec_psf_photometry,
-        spec_psf_photometry_err,
-        spec_model_photometry,
-        spec_model_photometry_err,
-        spec_additional_info,
-        spec_z,
-        spec_objid,
+        spec_psf_photometry_train,
+        spec_psf_photometry_err_train,
+        spec_model_photometry_train,
+        spec_model_photometry_err_train,
+        spec_additional_info_train,
+        spec_z_train,
+        spec_objid_train,
     ) = data.create_input_arrays(
-        input_df=spec_df,
+        input_df=spec_train,
         psf_columns=cfg["data_config"]["psf_columns"],
         psf_err_columns=cfg["data_config"]["psf_err_columns"],
         model_columns=cfg["data_config"]["model_columns"],
@@ -107,24 +107,24 @@ def main(cfg: DictConfig):
         objid_column=cfg["data_config"]["objid_column"],
         shuffle=cfg["data_config"]["shuffle"],
     )
-    spec_psf_photometry = spec_psf_photometry.squeeze(axis=0)
-    spec_psf_photometry_err = spec_psf_photometry_err.squeeze(axis=0)
-    spec_model_photometry = spec_model_photometry.squeeze(axis=0)
-    spec_model_photometry_err = spec_model_photometry_err.squeeze(axis=0)
-    spec_additional_info = jnp.log10(spec_additional_info).squeeze(axis=0)
-    spec_z = jnp.log10(spec_z).squeeze(axis=0)
-    spec_objid = spec_objid.squeeze(axis=0)
+    spec_psf_photometry_train = spec_psf_photometry_train.squeeze(axis=0)
+    spec_psf_photometry_err_train = spec_psf_photometry_err_train.squeeze(axis=0)
+    spec_model_photometry_train = spec_model_photometry_train.squeeze(axis=0)
+    spec_model_photometry_err_train = spec_model_photometry_err_train.squeeze(axis=0)
+    spec_additional_info_train = jnp.log10(spec_additional_info_train).squeeze(axis=0)
+    spec_z_train = jnp.log10(spec_z_train).squeeze(axis=0)
+    spec_objid_train = spec_objid_train.squeeze(axis=0)
 
     (
-        photo_psf_photometry,
-        photo_psf_photometry_err,
-        photo_model_photometry,
-        photo_model_photometry_err,
-        photo_additional_info,
+        photo_psf_photometry_train,
+        photo_psf_photometry_err_train,
+        photo_model_photometry_train,
+        photo_model_photometry_err_train,
+        photo_additional_info_train,
         _,
-        photo_objid,
+        photo_objid_train,
     ) = data.create_input_arrays(
-        input_df=photo_df,
+        input_df=photo_train,
         psf_columns=cfg["data_config"]["psf_columns"],
         psf_err_columns=cfg["data_config"]["psf_err_columns"],
         model_columns=cfg["data_config"]["model_columns"],
@@ -134,78 +134,65 @@ def main(cfg: DictConfig):
         objid_column=cfg["data_config"]["objid_column"],
         shuffle=cfg["data_config"]["shuffle"],
     )
-    photo_psf_photometry = photo_psf_photometry.squeeze(axis=0)
-    photo_psf_photometry_err = photo_psf_photometry_err.squeeze(axis=0)
-    photo_model_photometry = photo_model_photometry.squeeze(axis=0)
-    photo_model_photometry_err = photo_model_photometry_err.squeeze(axis=0)
-    photo_additional_info = jnp.log10(photo_additional_info).squeeze(axis=0)
-    photo_objid = photo_objid.squeeze(axis=0)
+    photo_psf_photometry_train = photo_psf_photometry_train.squeeze(axis=0)
+    photo_psf_photometry_err_train = photo_psf_photometry_err_train.squeeze(axis=0)
+    photo_model_photometry_train = photo_model_photometry_train.squeeze(axis=0)
+    photo_model_photometry_err_train = photo_model_photometry_err_train.squeeze(axis=0)
+    photo_additional_info_train = jnp.log10(photo_additional_info_train).squeeze(axis=0)
+    photo_objid_train = photo_objid_train.squeeze(axis=0)
 
-    # ----------------------------- SPLIT INTO TRAIN AND VAL -----------------------------
-
-    spec_split_key, photo_split_key, RNG_KEY = jr.split(RNG_KEY, 3)
-    spec_val_mask = jax.random.bernoulli(
-        spec_split_key,
-        p=cfg["data_config"]["validation_fraction"],
-        shape=(spec_z.shape[0],),
+    (
+        spec_psf_photometry_val,
+        spec_psf_photometry_err_val,
+        spec_model_photometry_val,
+        spec_model_photometry_err_val,
+        spec_additional_info_val,
+        spec_z_val,
+        spec_objid_val,
+    ) = data.create_input_arrays(
+        input_df=spec_val,
+        psf_columns=cfg["data_config"]["psf_columns"],
+        psf_err_columns=cfg["data_config"]["psf_err_columns"],
+        model_columns=cfg["data_config"]["model_columns"],
+        model_err_columns=cfg["data_config"]["model_err_columns"],
+        additional_columns=cfg["data_config"]["additional_columns"],
+        z_column=cfg["data_config"]["z_column"],
+        objid_column=cfg["data_config"]["objid_column"],
+        shuffle=cfg["data_config"]["shuffle"],
     )
-    photo_val_mask = jax.random.bernoulli(
-        photo_split_key,
-        p=cfg["data_config"]["validation_fraction"],
-        shape=(photo_objid.shape[0],),
+    spec_psf_photometry_val = spec_psf_photometry_val.squeeze(axis=0)
+    spec_psf_photometry_err_val = spec_psf_photometry_err_val.squeeze(axis=0)
+    spec_model_photometry_val = spec_model_photometry_val.squeeze(axis=0)
+    spec_model_photometry_err_val = spec_model_photometry_err_val.squeeze(axis=0)
+    spec_additional_info_val = jnp.log10(spec_additional_info_val).squeeze(axis=0)
+    spec_z_val = jnp.log10(spec_z_val).squeeze(axis=0)
+    spec_objid_val = spec_objid_val.squeeze(axis=0)
+
+    (
+        photo_psf_photometry_val,
+        photo_psf_photometry_err_val,
+        photo_model_photometry_val,
+        photo_model_photometry_err_val,
+        photo_additional_info_val,
+        _,
+        photo_objid_val,
+    ) = data.create_input_arrays(
+        input_df=photo_val,
+        psf_columns=cfg["data_config"]["psf_columns"],
+        psf_err_columns=cfg["data_config"]["psf_err_columns"],
+        model_columns=cfg["data_config"]["model_columns"],
+        model_err_columns=cfg["data_config"]["model_err_columns"],
+        additional_columns=cfg["data_config"]["additional_columns"],
+        z_column=None,
+        objid_column=cfg["data_config"]["objid_column"],
+        shuffle=cfg["data_config"]["shuffle"],
     )
-
-    spec_psf_photometry_train = spec_psf_photometry[~spec_val_mask]
-    spec_psf_photometry_err_train = spec_psf_photometry_err[~spec_val_mask]
-    spec_model_photometry_train = spec_model_photometry[~spec_val_mask]
-    spec_model_photometry_err_train = spec_model_photometry_err[~spec_val_mask]
-    spec_additional_info_train = spec_additional_info[~spec_val_mask]
-    spec_z_train = spec_z[~spec_val_mask]
-    spec_objid_train = spec_objid[~spec_val_mask]
-
-    spec_psf_photometry_val = spec_psf_photometry[spec_val_mask]
-    spec_psf_photometry_err_val = spec_psf_photometry_err[spec_val_mask]
-    spec_model_photometry_val = spec_model_photometry[spec_val_mask]
-    spec_model_photometry_err_val = spec_model_photometry_err[spec_val_mask]
-    spec_additional_info_val = spec_additional_info[spec_val_mask]
-    spec_z_val = spec_z[spec_val_mask]
-    spec_objid_val = spec_objid[spec_val_mask]
-
-    photo_psf_photometry_train = photo_psf_photometry[~photo_val_mask]
-    photo_psf_photometry_err_train = photo_psf_photometry_err[~photo_val_mask]
-    photo_model_photometry_train = photo_model_photometry[~photo_val_mask]
-    photo_model_photometry_err_train = photo_model_photometry_err[~photo_val_mask]
-    photo_additional_info_train = photo_additional_info[~photo_val_mask]
-    photo_objid_train = photo_objid[~photo_val_mask]
-
-    photo_psf_photometry_val = photo_psf_photometry[photo_val_mask]
-    photo_psf_photometry_err_val = photo_psf_photometry_err[photo_val_mask]
-    photo_model_photometry_val = photo_model_photometry[photo_val_mask]
-    photo_model_photometry_err_val = photo_model_photometry_err[photo_val_mask]
-    photo_additional_info_val = photo_additional_info[photo_val_mask]
-    photo_objid_val = photo_objid[photo_val_mask]
-
-    n_train_spec = spec_psf_photometry_train.shape[0]
-    n_train_photo = photo_psf_photometry_train.shape[0]
-    n_val_spec = spec_psf_photometry_val.shape[0]
-    n_val_photo = photo_psf_photometry_val.shape[0]
-
-    expected_n_train_spec_batches = n_train_spec // SPECTROSCOPIC_BATCH_SIZE
-    expected_n_train_photo_batches = n_train_photo // PHOTOMETRIC_BATCH_SIZE
-    expected_n_val_spec_batches = n_val_spec // SPECTROSCOPIC_BATCH_SIZE
-    expected_n_val_photo_batches = n_val_photo // PHOTOMETRIC_BATCH_SIZE
-
-    print(f"\nTrain Spec: {spec_psf_photometry_train.shape[0]}")
-    print(f"Train Photo: {photo_psf_photometry_train.shape[0]}")
-    print(
-        f"Expected No of Train Batches: {expected_n_train_spec_batches} / {expected_n_train_photo_batches}\n"
-    )
-
-    print(f"\nVal Spec: {spec_psf_photometry_val.shape[0]}")
-    print(f"Val Photo: {photo_psf_photometry_val.shape[0]}")
-    print(
-        f"Expected No of Val Batches: {expected_n_val_spec_batches} / {expected_n_val_photo_batches}\n"
-    )
+    photo_psf_photometry_val = photo_psf_photometry_val.squeeze(axis=0)
+    photo_psf_photometry_err_val = photo_psf_photometry_err_val.squeeze(axis=0)
+    photo_model_photometry_val = photo_model_photometry_val.squeeze(axis=0)
+    photo_model_photometry_err_val = photo_model_photometry_err_val.squeeze(axis=0)
+    photo_additional_info_val = jnp.log10(photo_additional_info_val).squeeze(axis=0)
+    photo_objid_val = photo_objid_val.squeeze(axis=0)
 
     ###################################################################################
     ############################ CREATE DATASETS ######################################
@@ -282,7 +269,7 @@ def main(cfg: DictConfig):
         key=decoder_input_key,
     )
 
-    decoder = nn.GaussianCoder(
+    decoder = nn.SharedSigmaGaussianCoder(
         input_size=cfg["model_config"]["latent_size"]
         + cfg["model_config"]["predictor_size"],
         output_size=cfg["model_config"]["input_size"],
@@ -307,7 +294,7 @@ def main(cfg: DictConfig):
 
     if cfg["model_config"]["use_v2"]:
 
-        encoder = nn.GaussianCoder(
+        encoder = nn.SharedSigmaGaussianCoder(
             input_size=cfg["model_config"]["input_size"],
             output_size=cfg["model_config"]["latent_size"],
             width=cfg["model_config"]["layers"],
@@ -358,7 +345,7 @@ def main(cfg: DictConfig):
             key=encoder_input_key,
         )
 
-        encoder = nn.GaussianCoder(
+        encoder = nn.SharedSigmaGaussianCoder(
             input_size=cfg["model_config"]["input_size"]
             + cfg["model_config"]["predictor_size"],
             output_size=cfg["model_config"]["latent_size"],

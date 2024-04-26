@@ -1,14 +1,16 @@
 import os
-
-# n_cpu = os.cpu_count()
-# print(f"Number of CPUs available: {n_cpu}")
-# env_flag = f"--xla_force_host_platform_device_count={n_cpu}"
-# os.environ["XLA_FLAGS"] = env_flag
-
 import jax
+
+n_cpu = 2  # os.cpu_count()
+print(f"Number of CPUs available: {n_cpu}")
+env_flag = f"--xla_force_host_platform_device_count={n_cpu}"
+os.environ["XLA_FLAGS"] = env_flag
+n_devices = jax.device_count()
 
 jax.config.update("jax_enable_x64", True)
 print(f"JAX backend: {jax.devices()}")
+
+from jax.experimental import mesh_utils
 
 import time
 import optax
@@ -24,6 +26,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import src.predvae.nn as nn
+import jax.sharding as jshard
 import src.predvae.data as data
 import matplotlib.pyplot as plt
 import src.predvae.training as training
@@ -32,59 +35,42 @@ from pathlib import Path
 from functools import partial
 from jax.typing import ArrayLike
 from jax.tree_util import tree_map
+from ffcv.loader import Loader, OrderOption
 
 COLORS = sns.color_palette("colorblind")
 SEED = 5678
 RNG_KEY = jax.random.PRNGKey(SEED)
 
 # Training parameters
-BATCH_SIZE = 64
-PEAK_LR = 5e-3
-END_LR = 1e-5
-EPOCHS = 10
+BATCH_SIZE = 128
+PEAK_LR = 1e-2
+END_LR = 1e-4
+EPOCHS = 1000
 WARMUP = 1
 BATCHES_PER_EPOCH = 10
 
 # Model parameters
 INPUT_SHAPE = 784
-LATENT_DIM = 64
+LATENT_DIM = 2
 MIXTURE_COMPONENTS = 10
-LAYERS = [512, 512]
-USE_SPEC_NORM = False
+LAYERS = [1024, 512]
+USE_SPEC_NORM = True
 
 # Dirs
-SAVE_DIR = Path("./gmvae_results")
+SAVE_DIR = Path("./gmvae_results_v2")
 SAVE_DIR.mkdir(exist_ok=True)
-
 
 #################################################################################################################
 ########################################## Data Loading #########################################################
 #################################################################################################################
 
-normalise_data = torchvision.transforms.Compose(
-    [
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: np.where(x > 0.5, 1.0, 0.0).squeeze()),
-        torchvision.transforms.Lambda(lambda x: x.flatten()),
-    ]
+DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/FFCV_MNIST")
+
+trainloader = Loader(
+    DATA_DIR / "train.beton", batch_size=BATCH_SIZE, order=OrderOption.RANDOM
 )
-train_dataset = torchvision.datasets.MNIST(
-    "MNIST",
-    train=True,
-    download=True,
-    transform=normalise_data,
-)
-test_dataset = torchvision.datasets.MNIST(
-    "MNIST",
-    train=False,
-    download=True,
-    transform=normalise_data,
-)
-trainloader = torch.utils.data.DataLoader(
-    train_dataset, batch_size=BATCH_SIZE, shuffle=True
-)
-testloader = torch.utils.data.DataLoader(
-    test_dataset, batch_size=BATCH_SIZE, shuffle=True
+testloader = Loader(
+    DATA_DIR / "test.beton", batch_size=BATCH_SIZE, order=OrderOption.RANDOM
 )
 
 #################################################################################################################
@@ -120,7 +106,7 @@ encoder_input_layer = nn.InputLayer(
     key=encoder_input_key,
 )
 
-encoder = nn.GaussianCoder(
+encoder = nn.SharedSigmaGaussianCoder(
     input_size=INPUT_SHAPE + MIXTURE_COMPONENTS,
     output_size=LATENT_DIM,
     width=LAYERS,
@@ -190,7 +176,19 @@ optimizer = optax.adam(learning_rate=lr_schedule)
 optimizer_state = optimizer.init(eqx.filter(gmvae, eqx.is_array))
 
 
-@eqx.filter_jit
+# @eqx.filter_jit()
+@partial(
+    eqx.filter_pmap,
+    axis_name="num_devices",
+    in_axes=(
+        eqx.if_array(0),
+        eqx.if_array(0),
+        None,
+        eqx.if_array(0),
+        eqx.if_array(0),
+        eqx.if_array(0),
+    ),
+)
 def train_step(
     x: ArrayLike,
     y: ArrayLike,
@@ -199,10 +197,15 @@ def train_step(
     input_state: eqx.nn.State,
     optimizer_state: optax.OptState,
 ):
+
     free_params, frozen_params = eqx.partition(model, filter_spec)
     (loss_value, (loss_aux, y_pred, output_state)), grads = eqx.filter_value_and_grad(
         training.unsupervised_clustering_loss, has_aux=True
     )(free_params, frozen_params, input_state, x, y, rng_key)
+
+    grads = jax.lax.pmean(grads, axis_name="num_devices")
+    loss_value = jax.lax.pmean(loss_value, axis_name="num_devices")
+    loss_aux = jax.lax.pmean(loss_aux, axis_name="num_devices")
 
     updates, optimizer_state = optimizer.update(grads, optimizer_state, model)
     model = eqx.apply_updates(model, updates)
@@ -210,7 +213,12 @@ def train_step(
     return model, output_state, optimizer_state, loss_value, loss_aux, y_pred
 
 
-@eqx.filter_jit
+# @eqx.filter_jit()
+@partial(
+    eqx.filter_pmap,
+    axis_name="num_devices",
+    in_axes=(eqx.if_array(0), eqx.if_array(0), None, eqx.if_array(0), eqx.if_array(0)),
+)
 def val_step(
     x: ArrayLike,
     y: ArrayLike,
@@ -218,12 +226,16 @@ def val_step(
     model: eqx.Module,
     input_state: eqx.nn.State,
 ):
+
     free_params, frozen_params = eqx.partition(model, filter_spec)
     loss_value, (loss_aux, y_pred, output_state) = (
         training.unsupervised_clustering_loss(
             free_params, frozen_params, input_state, x, y, rng_key
         )
     )
+
+    loss_value = jax.lax.pmean(loss_value, axis_name="num_devices")
+    loss_aux = jax.lax.pmean(loss_aux, axis_name="num_devices")
 
     return output_state, loss_value, loss_aux, y_pred
 
@@ -237,6 +249,7 @@ def train_model(
     epochs: int,
     rng_key: ArrayLike,
     batch_per_epoch: int = 0,
+    n_devices: int = 1,
 ):
     train_loss = []
     val_loss = []
@@ -244,6 +257,14 @@ def train_model(
     val_aux = []
     train_acc = []
     val_acc = []
+
+    optimizer_state = jax.tree_map(
+        lambda x: jnp.array([x] * n_devices), optimizer_state
+    )
+    model_params, model_static = eqx.partition(model, eqx.is_array)
+    model_params = jax.tree_map(lambda x: jnp.array([x] * n_devices), model_params)
+    model = eqx.combine(model_params, model_static)
+    input_state = jax.tree_map(lambda x: jnp.array([x] * n_devices), input_state)
 
     for epoch in range(epochs):
         epoch_train_loss = []
@@ -253,29 +274,40 @@ def train_model(
         epoch_val_aux = []
         epoch_val_acc = []
 
+        train_key, val_key, rng_key = jr.split(rng_key, 3)
+
         t0_train = time.time()
         for i, (x, y) in enumerate(trainloader):
             x = jnp.array(x.numpy())
-            y = jnp.array(y.numpy())
+            y = jnp.array(y.numpy()).squeeze()
             y_onehot = jax.nn.one_hot(y, MIXTURE_COMPONENTS)
 
-            rng_key, subkey = jr.split(rng_key)
+            x = x.reshape(n_devices, -1, x.shape[-1])
+            y_onehot = y_onehot.reshape(n_devices, -1, y_onehot.shape[-1])
 
-            model, input_state, optimizer_state, loss_value, loss_aux, y_pred = (
-                train_step(
-                    x,
-                    y_onehot,
-                    subkey,
-                    model,
-                    input_state,
-                    optimizer_state,
-                )
+            step_key, train_key = jr.split(train_key, 2)
+
+            (
+                model,
+                input_state,
+                optimizer_state,
+                loss_value,
+                loss_aux,
+                y_pred,
+            ) = train_step(
+                x,
+                y_onehot,
+                step_key,
+                model,
+                input_state,
+                optimizer_state,
             )
 
+            y_pred = y_pred.reshape(y.shape)
             acc = training.cluster_acc(y_pred, y)
 
-            epoch_train_loss.append(loss_value)
-            epoch_train_aux.append(loss_aux)
+            epoch_train_loss.append(loss_value[0])
+            epoch_train_aux.append(loss_aux[0])
             epoch_train_acc.append(acc)
 
             if batch_per_epoch != 0 and i >= batch_per_epoch:
@@ -285,19 +317,25 @@ def train_model(
 
         t0_val = time.time()
         inference_model = eqx.nn.inference_mode(model)
+
         for i, (x, y) in enumerate(valloader):
             x = jnp.array(x.numpy())
-            y = jnp.array(y.numpy())
+            y = jnp.array(y.numpy()).squeeze()
             y_onehot = jax.nn.one_hot(y, MIXTURE_COMPONENTS)
 
+            x = x.reshape(n_devices, -1, x.shape[-1])
+            y_onehot = y_onehot.reshape(n_devices, -1, y_onehot.shape[-1])
+
+            step_key, val_key = jr.split(val_key, 2)
             input_state, loss_value, loss_aux, y_pred = val_step(
-                x, y_onehot, jr.split(rng_key, 1)[0], inference_model, input_state
+                x, y_onehot, val_key, inference_model, input_state
             )
 
+            y_pred = y_pred.reshape(y.shape)
             acc = training.cluster_acc(y_pred, y)
 
-            epoch_val_loss.append(loss_value)
-            epoch_val_aux.append(loss_aux)
+            epoch_val_loss.append(loss_value[0])
+            epoch_val_aux.append(loss_aux[0])
             epoch_val_acc.append(acc)
 
             if batch_per_epoch != 0 and i >= batch_per_epoch:
@@ -336,6 +374,10 @@ def train_model(
     train_acc = jnp.array(train_acc)
     val_acc = jnp.array(val_acc)
 
+    model_params, model_static = eqx.partition(model, eqx.is_array)
+    model_params = jax.device_get(jax.tree_map(lambda x: x[0], model_params))
+    model = eqx.combine(model_params, model_static)
+
     return (
         model,
         input_state,
@@ -368,6 +410,7 @@ def train_model(
     EPOCHS,
     RNG_KEY,
     BATCHES_PER_EPOCH,
+    n_devices=n_devices,
 )
 
 # Save model

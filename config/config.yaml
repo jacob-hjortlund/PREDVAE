@@ -13,9 +13,11 @@ data_config:
   drop_last: True
   resample_photometry: True
   missing_target_value: -9999.0
-  data_dir:  '/home/jacob/Uni/Msc/VAEPhotoZ/Data/Base/'  #'/groups/dark/osman/VAEPhotoZ/Data/Base/' '/scratch/project/dd-23-98/Base/'
-  spec_file: 'SDSS_spec_train_subset.csv'
-  photo_file: 'SDSS_photo_small_subset.csv'
+  data_dir:  '/home/jacob/Uni/Msc/VAEPhotoZ/Data/Processed/'  #'/groups/dark/osman/VAEPhotoZ/Data/Base/' '/scratch/project/dd-23-98/Base/'
+  spec_train_file: 'SDSS_spec_train.csv'
+  spec_val_file: 'SDSS_spec_val.csv'
+  photo_train_file: 'SDSS_photo_train.csv'
+  photo_val_file: 'SDSS_photo_val.csv'
   psf_columns: [
     'psfmag_u',
     'psfmag_g',
@@ -77,7 +79,9 @@ training_config:
   warmup: 1
   init_lr: 0.005
   final_lr: 0.00005
-  batch_size: 1024
+  full_batch_size: 1024
+  spectroscopic_batch_size: 1024
+  photometric_batch_size: 1024
   beta: 1.0
   n_mc_samples: 1
   pretrain_vae: False

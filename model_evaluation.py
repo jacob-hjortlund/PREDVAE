@@ -54,7 +54,7 @@ def main(cfg: DictConfig):
         "\n--------------------------------- LOADING DATA ---------------------------------\n"
     )
 
-    spec_df = pd.read_csv(DATA_DIR / "SDSS_spec_test.csv")
+    spec_df = pd.read_csv(DATA_DIR / "spec_galaxies_test.csv")  # "SDSS_spec_test.csv")
 
     (
         spec_psf_photometry,
@@ -110,7 +110,7 @@ def main(cfg: DictConfig):
         dataloader_state,
     ) = data.make_dataloader(
         spec_dataset,
-        batch_size=cfg["training_config"]["batch_size"],
+        batch_size=cfg["training_config"]["full_batch_size"],
         rng_key=dataloader_key,
         shuffle=False,
         drop_last=True,
@@ -138,7 +138,7 @@ def main(cfg: DictConfig):
 
     spec_z_sample_idxes = jr.choice(
         jr.PRNGKey(420),
-        64 * 1024,  # GET RID OF MAGIC NUMBER
+        len(zspec) // 1024 * 1024,  # GET RID OF MAGIC NUMBER
         (cfg["evaluation_config"]["n_sample"],),
         replace=False,
     )
@@ -168,7 +168,7 @@ def main(cfg: DictConfig):
         key=decoder_input_key,
     )
 
-    decoder = nn.GaussianCoder(
+    decoder = nn.SharedSigmaGaussianCoder(
         input_size=cfg["model_config"]["latent_size"]
         + cfg["model_config"]["predictor_size"],
         output_size=cfg["model_config"]["input_size"],
@@ -193,7 +193,7 @@ def main(cfg: DictConfig):
 
     if cfg["model_config"]["use_v2"]:
 
-        encoder = nn.GaussianCoder(
+        encoder = nn.SharedSigmaGaussianCoder(
             input_size=cfg["model_config"]["input_size"],
             output_size=cfg["model_config"]["latent_size"],
             width=cfg["model_config"]["layers"],
@@ -244,7 +244,7 @@ def main(cfg: DictConfig):
             key=encoder_input_key,
         )
 
-        encoder = nn.GaussianCoder(
+        encoder = nn.SharedSigmaGaussianCoder(
             input_size=cfg["model_config"]["input_size"]
             + cfg["model_config"]["predictor_size"],
             output_size=cfg["model_config"]["latent_size"],
