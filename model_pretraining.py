@@ -820,7 +820,7 @@ def main(cfg: DictConfig):
             train_spectroscopic_dataloader_state,
         ) = data.make_dataloader(
             train_spec_dataset,
-            batch_size=cfg["training_config"]["batch_size"],
+            batch_size=cfg["training_config"]["spectroscopic_batch_size"],
             rng_key=train_spec_dataloader_key,
             shuffle=cfg["data_config"]["shuffle"],
             drop_last=cfg["data_config"]["drop_last"],
@@ -842,7 +842,7 @@ def main(cfg: DictConfig):
             val_photometric_dataloader_state,
         ) = data.make_dataloader(
             val_photo_dataset,
-            batch_size=cfg["training_config"]["batch_size"],
+            batch_size=cfg["training_config"]["spectroscopic_batch_size"],
             rng_key=val_photo_dataloader_key,
             shuffle=False,
             drop_last=cfg["data_config"]["drop_last"],
@@ -853,7 +853,7 @@ def main(cfg: DictConfig):
             val_spectroscopic_dataloader_state,
         ) = data.make_dataloader(
             val_spec_dataset,
-            batch_size=cfg["training_config"]["batch_size"],
+            batch_size=cfg["training_config"]["spectroscopic_batch_size"],
             rng_key=val_spec_dataloader_key,
             shuffle=False,
             drop_last=cfg["data_config"]["drop_last"],
@@ -909,7 +909,7 @@ def main(cfg: DictConfig):
         optimizer_state = optimizer.init(eqx.filter(ssvae, eqx.is_array))
 
         loss_kwargs = {
-            "alpha": ALPHA,
+            "alpha": 1,
             "missing_target_value": cfg["data_config"]["missing_target_value"],
             "vae_factor": 0.0,
             "beta": cfg["training_config"]["beta"],

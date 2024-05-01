@@ -72,7 +72,7 @@ def remove_quality_flagged_inputs(
     return filtered_df
 
 
-def split_dataset(df, test_size, seed, val_size=None):
+def split_dataset(df, test_size, seed, val_size=None, stratify=None):
 
     if test_size < 1:
         test_size = int(test_size * len(df))
@@ -82,21 +82,31 @@ def split_dataset(df, test_size, seed, val_size=None):
     else:
         val_size = test_size
 
+    if stratify is not None:
+        test_stratify = df[stratify]
+    else:
+        test_stratify = None
+
     df_train, df_test = train_test_split(
         df,
         test_size=test_size,
         random_state=seed,
-        stratify=df["class"],
+        stratify=test_stratify,
     )
 
     df_train.reset_index(drop=True, inplace=True)
     df_test.reset_index(drop=True, inplace=True)
 
+    if stratify is not None:
+        val_stratify = df_train[stratify]
+    else:
+        val_stratify = None
+
     df_train, df_val = train_test_split(
         df_train,
         test_size=val_size,
         random_state=seed,
-        stratify=df_train["class"],
+        stratify=val_stratify,
     )
 
     df_train.reset_index(drop=True, inplace=True)
@@ -131,7 +141,7 @@ spec_star = spec[spec["class"] == "STAR"]
 spec_star = spec_star.reset_index(drop=True)
 
 spec_train, spec_val, spec_test = split_dataset(
-    spec, test_size=TEST_VAL_FRACTION, seed=SEED
+    spec, test_size=TEST_VAL_FRACTION, seed=SEED, stratify="class"
 )
 spec_galaxies_train, spec_galaxies_val, spec_galaxies_test = split_dataset(
     spec_galaxies, test_size=TEST_VAL_FRACTION, seed=SEED

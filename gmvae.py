@@ -1,7 +1,7 @@
 import os
 import jax
 
-n_cpu = 2  # os.cpu_count()
+n_cpu = 32  # os.cpu_count()
 print(f"Number of CPUs available: {n_cpu}")
 env_flag = f"--xla_force_host_platform_device_count={n_cpu}"
 os.environ["XLA_FLAGS"] = env_flag
@@ -38,33 +38,33 @@ from jax.tree_util import tree_map
 from ffcv.loader import Loader, OrderOption
 
 COLORS = sns.color_palette("colorblind")
-SEED = 5678
+SEED = 42#5678
 RNG_KEY = jax.random.PRNGKey(SEED)
 
 # Training parameters
-BATCH_SIZE = 128
-PEAK_LR = 1e-2
+BATCH_SIZE = 2048
+PEAK_LR = 1e-3
 END_LR = 1e-4
 EPOCHS = 1000
 WARMUP = 1
-BATCHES_PER_EPOCH = 10
+BATCHES_PER_EPOCH = 0#10
 
 # Model parameters
 INPUT_SHAPE = 784
 LATENT_DIM = 2
 MIXTURE_COMPONENTS = 10
-LAYERS = [1024, 512]
-USE_SPEC_NORM = True
+LAYERS = [512, 512]
+USE_SPEC_NORM = False
 
 # Dirs
-SAVE_DIR = Path("./gmvae_results_v2")
-SAVE_DIR.mkdir(exist_ok=True)
+SAVE_DIR = Path("/groups/dark/osman/VAEPhotoZ/PREDVAE/GMVAE_Results/gmvae_free_sig_new_seed_2d")
+SAVE_DIR.mkdir(exist_ok=True, parents=True)
 
 #################################################################################################################
 ########################################## Data Loading #########################################################
 #################################################################################################################
 
-DATA_DIR = Path("/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/FFCV_MNIST")
+DATA_DIR = Path("/groups/dark/osman/VAEPhotoZ/PREDVAE/FFCV_MNIST")
 
 trainloader = Loader(
     DATA_DIR / "train.beton", batch_size=BATCH_SIZE, order=OrderOption.RANDOM
@@ -106,7 +106,7 @@ encoder_input_layer = nn.InputLayer(
     key=encoder_input_key,
 )
 
-encoder = nn.SharedSigmaGaussianCoder(
+encoder = nn.GaussianCoder(
     input_size=INPUT_SHAPE + MIXTURE_COMPONENTS,
     output_size=LATENT_DIM,
     width=LAYERS,
@@ -172,7 +172,8 @@ lr_schedule = optax.warmup_cosine_decay_schedule(
     EPOCHS - WARMUP,
     PEAK_LR,
 )
-optimizer = optax.adam(learning_rate=lr_schedule)
+#optimizer = optax.adam(learning_rate=lr_schedule)
+optimizer = optax.adam(learning_rate=PEAK_LR)
 optimizer_state = optimizer.init(eqx.filter(gmvae, eqx.is_array))
 
 
@@ -417,6 +418,10 @@ def train_model(
 training.save(SAVE_DIR / "init_gmvae.pkl", gmvae)
 training.save(SAVE_DIR / "gmvae.pkl", trained_gmvae)
 training.save(SAVE_DIR / "model_state.pkl", input_state)
+np.save(SAVE_DIR / "train_loss.npy", train_loss)
+np.save(SAVE_DIR / "val_loss.npy", val_loss)
+np.save(SAVE_DIR / "train_aux.npy", train_aux)
+np.save(SAVE_DIR / "val_aux.npy", val_aux)
 
 #################################################################################################################
 ############################################ Figures ############################################################
