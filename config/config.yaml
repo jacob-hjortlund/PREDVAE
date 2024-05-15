@@ -5,7 +5,7 @@ defaults:
 
 seed: 5678
 run_name: 'baseline'
-save_dir: '/groups/dark/osman/VAEPhotoZ/PREDVAE/Results/' #'/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/Results/' #'/home/it4i-josman/PREDVAE/Results/'
+save_dir: '/home/it4i-josman/PREDVAE/Results/' #'/groups/dark/osman/VAEPhotoZ/PREDVAE/Results/' #'/home/jacob/Uni/Msc/VAEPhotoZ/PREDVAE/Results/'
 
 data_config:
   validation_fraction: 0.5
