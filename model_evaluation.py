@@ -54,7 +54,14 @@ def main(cfg: DictConfig):
         "\n--------------------------------- LOADING DATA ---------------------------------\n"
     )
 
-    spec_df = pd.read_csv(DATA_DIR / "spec_galaxies_test.csv")  # "SDSS_spec_test.csv")
+    if cfg["evaluation_config"]["single_class_model"]:
+        spec_galaxies_df = pd.read_csv(DATA_DIR / "spec_galaxies_test.csv")
+        spec_qso_df = pd.read_csv(DATA_DIR / "spec_qso_test.csv")
+        spec_star_df = pd.read_csv(DATA_DIR / "spec_star_test.csv")
+        spec_df = pd.concat([spec_galaxies_df, spec_qso_df, spec_star_df], axis=0)
+        spec_df = spec_df.reset_index(drop=True)
+    else:
+        spec_df = pd.read_csv(DATA_DIR / "spec_galaxies_test.csv")
 
     (
         spec_psf_photometry,
@@ -138,7 +145,9 @@ def main(cfg: DictConfig):
 
     spec_z_sample_idxes = jr.choice(
         jr.PRNGKey(420),
-        len(zspec) // 1024 * 1024,  # GET RID OF MAGIC NUMBER
+        len(zspec)
+        // cfg["training_config"]["full_batch_size"]
+        * cfg["training_config"]["full_batch_size"],  # GET RID OF MAGIC NUMBER
         (cfg["evaluation_config"]["n_sample"],),
         replace=False,
     )
@@ -354,7 +363,11 @@ def main(cfg: DictConfig):
             filename="pretrained_predictor_latent_space",
         )
         evaluation.qq_plot(
-            ppf_fractions, SAVE_DIR, filename="pretrained_predictor_qq_plot"
+            target_values,
+            ppfs,
+            object_class,
+            SAVE_DIR,
+            filename="pretrained_predictor_qq_plot",
         )
 
         (means, stds), (medians, lower, upper), (lower_3sig, upper_3sig) = (
